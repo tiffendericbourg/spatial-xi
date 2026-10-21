@@ -82,7 +82,7 @@ function Pitch({ events, selectedId, onSelect }) {
       return <g key={e.id} tabIndex="0" role="button" className="pitch-action" aria-label={`${e.player || 'Player'} ${e.type}, minute ${e.minute}`}
         opacity={selectedId && !active ? .22 : 1} onClick={() => onSelect(e.id)}
         onKeyDown={ev => {if(ev.key==='Enter' || ev.key===' ') {ev.preventDefault();onSelect(e.id)}}}>
-        {valid(ex,ey) && <line x1={x} y1={y} x2={ex} y2={ey} stroke={c} strokeWidth={active ? 4 : e._forward ? 2.5 + Math.min(3,forwardGain(e)/18) : 1.8} strokeDasharray={e.type==='Pass' && e.outcome!=='Complete' ? '8 6' : undefined} markerEnd={e.type==='Pass' && (active || e._forward) ? 'url(#pass-arrow)' : undefined} opacity={active ? 1 : .43}/>}
+        {valid(ex,ey) && <line x1={x} y1={y} x2={ex} y2={ey} stroke={c} strokeWidth={active ? 4 : e._efficiency ? 2.5 + Math.min(4,efficiency(e)/30) : e._forward ? 2.5 + Math.min(3,forwardGain(e)/18) : 1.8} strokeDasharray={e.type==='Pass' && e.outcome!=='Complete' ? '8 6' : undefined} markerEnd={e.type==='Pass' && (active || e._forward) ? 'url(#pass-arrow)' : undefined} opacity={active ? 1 : .43}/>}
         <circle cx={x} cy={y} r={active ? 8 : shot ? 5 : 3.2} fill={c} stroke={active ? '#fff' : 'none'} strokeWidth="3"/>
       </g>
     })}
@@ -146,7 +146,7 @@ export default function App(){
   const players=[...new Set(events.filter(e=>team==='All teams'||e.team===team).map(e=>e.player).filter(Boolean))].sort()
   const byPeriod=useMemo(()=>events.filter(e=>period==='Full match'||String(e.period)===period),[events,period])
   const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||(mode==='Forward'&&isForwardPass(e))||(mode==='Efficiency'&&efficiency(e)>0)||e.type===mode)),[byPeriod,team,player,mode])
-  const displayEvents=useMemo(()=>filtered.map(e=>({...e,_forward:mode==='Forward'||mode==='Efficiency',_color:mode==='Efficiency'?'#b66d18':mode==='Forward'?'#11855b':e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current,mode])
+  const displayEvents=useMemo(()=>filtered.map(e=>({...e,_forward:mode==='Forward'||mode==='Efficiency',_efficiency:mode==='Efficiency',_color:mode==='Efficiency'?'#b66d18':mode==='Forward'?'#11855b':e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current,mode])
   const selected=filtered.find(e=>e.id===selectedId)
   const passesForMetrics=filtered.filter(e=>e.type==='Pass' && distance(e)!==null)
   const passDistances=passesForMetrics.map(e=>({...e,meters:distance(e)}))
