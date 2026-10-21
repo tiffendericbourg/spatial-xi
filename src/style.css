@@ -24,3 +24,7 @@ footer{border-top:1px solid #e4eaed;padding:24px 3px 32px;color:#82929d;font-siz
 @media(max-width:700px){.pitch-filters{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px}.pitch-filter:nth-child(3){grid-column:1/-1}.pitch-check{grid-column:1/-1}}
 
 @media(min-width:701px){.fixture-bar{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.fixture-centre{min-width:90px}}@media(max-width:700px){.fixture-bar{grid-template-columns:repeat(2,minmax(0,1fr))}.fixture-centre{grid-column:1/-1;grid-row:auto}.fixture-select{grid-row:auto}}
+
+/* Keep the tournament switcher in the top right only */
+.competition-select{font:inherit;font-size:12px;color:#253f55;min-width:155px;cursor:pointer}.competition-select:disabled{cursor:default}
+@media(min-width:701px){.fixture-bar{grid-template-columns:1fr auto 1fr;gap:28px}}
