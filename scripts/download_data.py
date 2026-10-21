@@ -1,4 +1,4 @@
-"""Download a few StatsBomb 2018 World Cup matches as compact event JSON.
+"""Download available StatsBomb 2018 World Cup matches as compact event JSON.
 
 Run: python scripts/download_data.py
 No third-party Python packages needed.
@@ -10,7 +10,6 @@ from urllib.request import Request, urlopen
 
 SOURCE = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
 DATA_DIR = Path(__file__).resolve().parents[1] / "public" / "data"
-MAX_MATCHES = 3
 
 
 def download_json(path):
@@ -61,19 +60,23 @@ def convert_event(event):
 def main():
     # Start with a known, freely available competition: men's 2018 World Cup.
     matches = download_json("matches/43/3.json")
-    selected = sorted(matches, key=lambda match: (match["match_date"], match["match_id"]), reverse=True)[:MAX_MATCHES]
+    selected = sorted(matches, key=lambda match: (match["match_date"], match["match_id"]), reverse=True)
     catalogue = []
 
     for match in selected:
         match_id = match["match_id"]
         output = DATA_DIR / f"{match_id}.json"
         try:
-            events = download_json(f"events/{match_id}.json")
-            actions = [item for event in events if (item := convert_event(event)) is not None]
-            if not actions:
-                raise ValueError("No passes or shots returned")
-            save_json(output, {"match_id": match_id, "events": actions})
-            print(f"Saved match {match_id}: {len(actions)} events")
+            # Previously downloaded matches do not need another network request.
+            if not output.exists():
+                events = download_json(f"events/{match_id}.json")
+                actions = [item for event in events if (item := convert_event(event)) is not None]
+                if not actions:
+                    raise ValueError("No passes or shots returned")
+                save_json(output, {"match_id": match_id, "events": actions})
+                print(f"Saved match {match_id}: {len(actions)} events")
+            else:
+                print(f"Using cached match {match_id}")
         except (OSError, ValueError, KeyError) as error:
             # Keep any existing downloaded match if the remote source fails.
             print(f"Skipped match {match_id}: {error}")
@@ -86,11 +89,22 @@ def main():
             "competition": "FIFA World Cup 2018",
             "home": match["home_team"]["home_team_name"],
             "away": match["away_team"]["away_team_name"],
+            "home_score": match.get("home_score"),
+            "away_score": match.get("away_score"),
+            "stage": match.get("competition_stage", {}).get("name", "Unknown stage"),
         })
 
     if not catalogue:
         raise RuntimeError("No match data available; preserving existing catalogue")
-    save_json(DATA_DIR / "matches.json", catalogue)
+    # Never replace a larger existing catalogue after a partial download failure.
+    catalogue_path = DATA_DIR / "matches.json"
+    if catalogue_path.exists():
+        with catalogue_path.open(encoding="utf-8") as file:
+            previous = json.load(file)
+        existing_ids = {match["id"] for match in catalogue}
+        catalogue += [match for match in previous if match["id"] not in existing_ids]
+    catalogue.sort(key=lambda match: (match["date"], match["id"]), reverse=True)
+    save_json(catalogue_path, catalogue)
     print(f"Catalogue contains {len(catalogue)} matches")
 
 
