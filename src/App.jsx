@@ -3,6 +3,53 @@ import { useEffect, useMemo, useState } from 'react'
 const dataUrl = file => `${import.meta.env.BASE_URL}data/${file}`
 const valid = (x, y) => Number.isFinite(x) && Number.isFinite(y)
 const number = n => n.toLocaleString('en-US')
+const distance = e => Number.isFinite(e.end_x) && Number.isFinite(e.end_y)
+  ? Math.hypot((e.end_x - e.x) * 105 / 120, (e.end_y - e.y) * 68 / 80) : null
+const formatMeters = d => d == null ? '—' : `${d.toFixed(1)} m`
+const completedPass = e => e.type === 'Pass' && e.outcome === 'Complete'
+const pitchLines = <g fill="none" stroke="#fff" strokeWidth="3"><rect x="24" y="24" width="1152" height="752"/><path d="M600 24V776"/><circle cx="600" cy="400" r="92"/><rect x="24" y="205" width="175" height="390"/><rect x="1001" y="205" width="175" height="390"/><rect x="24" y="302" width="61" height="196"/><rect x="1115" y="302" width="61" height="196"/></g>
+
+function HeatPitch({ events }) {
+  const cells = Array.from({length: 24 * 16}, (_, i) => {
+    const col = i % 24, row = Math.floor(i / 24)
+    const count = events.filter(e => valid(e.x, e.y) && Math.floor(e.x / 5) === col && Math.floor(e.y / 5) === row).length
+    return {col, row, count}
+  })
+  const top = Math.max(1, ...cells.map(c => c.count))
+  return <svg viewBox="0 0 1200 800" className="pitch" role="img" aria-label="Heat map of selected event origins">
+    <rect width="1200" height="800" fill="#e6f3e1"/>
+    {cells.map(c => c.count > 0 && <rect key={`${c.col}-${c.row}`} x={c.col * 50} y={c.row * 50} width="50" height="50" fill="#ed714e" opacity={.12 + .78 * Math.sqrt(c.count / top)}/>)}
+    {pitchLines}
+  </svg>
+}
+
+function NetworkPitch({ events, onPlayer }) {
+  const passes = events.filter(e => completedPass(e) && e.recipient && e.player && e.recipient !== e.player && valid(e.x,e.y))
+  const nodes = {}
+  const edges = {}
+  passes.forEach(e => {
+    if (!nodes[e.player]) nodes[e.player] = {name:e.player,x:0,y:0,n:0}
+    nodes[e.player].x += e.x; nodes[e.player].y += e.y; nodes[e.player].n++
+    const key = [e.player,e.recipient].sort().join('||')
+    edges[key] = (edges[key] || 0) + 1
+  })
+  const positions = Object.values(nodes).filter(n => n.n >= 2).map(n => ({...n,x:n.x / n.n * 10,y:n.y / n.n * 10}))
+  const lookup = Object.fromEntries(positions.map(n => [n.name,n]))
+  const links = Object.entries(edges).map(([key,count]) => ({names:key.split('||'),count})).filter(e => e.names.every(n => lookup[n]))
+  const maxLink = Math.max(1,...links.map(e=>e.count))
+  const maxNode = Math.max(1,...positions.map(n=>n.n))
+  return <div className="network-wrap"><svg className="pitch" viewBox="0 0 1200 800" role="img" aria-label="Completed pass network between teammates">
+    <rect width="1200" height="800" fill="#e6f3e1"/>{pitchLines}
+    {links.map(e => <line key={e.names.join('-')} x1={lookup[e.names[0]].x} y1={lookup[e.names[0]].y} x2={lookup[e.names[1]].x} y2={lookup[e.names[1]].y} stroke="#176e58" strokeWidth={2+13*e.count/maxLink} opacity=".5"/>)}
+    {positions.map(n => <g key={n.name} className="network-player" role="button" tabIndex="0" onClick={()=>onPlayer(n.name)} onKeyDown={e=>{if(e.key==='Enter')onPlayer(n.name)}}>
+      <circle cx={n.x} cy={n.y} r={11+18*n.n/maxNode} fill="#174b83" stroke="white" strokeWidth="3"/>
+      <text x={n.x} y={n.y+44} textAnchor="middle" fontSize="17" fontWeight="700" fill="#1c3d46" stroke="#e6f3e1" strokeWidth="5" paintOrder="stroke">{n.name.split(' ').slice(-1)[0]}</text>
+      <title>{n.name}: {n.n} completed passes sent</title>
+    </g>)}
+  </svg>
+  {!passes.length && <div className="network-empty">Recipient data is not available for this selection yet. Update the match data to build the network.</div>}</div>
+}
+
 
 function Pitch({ events, selectedId, onSelect }) {
   return <svg viewBox="0 0 1200 800" className="pitch" aria-label="Football event map" role="img">
@@ -84,9 +131,18 @@ export default function App(){
   const teams=[...new Set(events.map(e=>e.team).filter(Boolean))]
   const players=[...new Set(events.filter(e=>team==='All teams'||e.team===team).map(e=>e.player).filter(Boolean))].sort()
   const byPeriod=useMemo(()=>events.filter(e=>period==='Full match'||String(e.period)===period),[events,period])
-  const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||e.type===mode)),[byPeriod,team,player,mode])
+  const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||e.type===mode)),[byPeriod,team,player,mode])
   const displayEvents=useMemo(()=>filtered.map(e=>({...e,_color:e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current])
   const selected=filtered.find(e=>e.id===selectedId)
+  const passesForMetrics=filtered.filter(e=>e.type==='Pass' && distance(e)!==null)
+  const passDistances=passesForMetrics.map(e=>({...e,meters:distance(e)}))
+  const longest=passDistances.length?passDistances.reduce((a,b)=>a.meters>b.meters?a:b):null
+  const averageDistance=passDistances.length?passDistances.reduce((sum,e)=>sum+e.meters,0)/passDistances.length:null
+  const distanceLeader=Object.entries(passDistances.reduce((acc,e)=>{if(e.player)acc[e.player]=(acc[e.player]||0)+e.meters;return acc},{})).sort((a,b)=>b[1]-a[1])[0]
+  const chartEvents=mode==='Network'?filtered.filter(e=>e.type==='Pass'):filtered
+  const networkTeam=team==='All teams'?(current?.home||''):team
+  const networkEvents=chartEvents.filter(e=>e.team===networkTeam)
+  const handleNetworkPlayer=name=>{setPlayer(name);setMode('Pass');setSelectedId(null)}
   const stats=useMemo(()=> {
     const collect=name=>{
       const teamEvents=byPeriod.filter(e=>e.team===name)
@@ -102,7 +158,7 @@ export default function App(){
   const awayPasses=byPeriod.filter(e=>e.team===current?.away&&e.type==='Pass')
   const keyPasses=byPeriod.filter(e=>e.type==='Shot')
   const changeCountry=value=>{setCountry(value);const first=matches.find(m=>value==='All countries'||m.home===value||m.away===value);if(first)setMatchId(String(first.id))}
-  const modes=[['Pass','Passes'],['Shot','Shots'],['All events','All actions']]
+  const modes=[['Pass','Passes'],['Shot','Shots'],['Carry','Carries'],['Dribble','Dribbles'],['Ball Receipt*','Ball receipts'],['All events','All actions'],['Network','Pass network'],['Heatmap','Heat map']]
 
   return <div className="site" id="home">
     <header className="topbar"><nav aria-label="Main navigation"><a href="#explorer" className="nav-active">Matches</a><a href="#team-insights">Teams</a><a href="#player-filter">Players</a><a href="#about">About</a></nav><span className="competition-label">World Cup 2018 <span>⌄</span></span></header>
@@ -113,7 +169,7 @@ export default function App(){
         <div className="fixture-select"><label htmlFor="fixture">Match</label><select id="fixture" value={matchId} onChange={e=>setMatchId(e.target.value)} disabled={!matches.length}>{!matches.length&&<option>Loading matches…</option>}{fixtures.map(m=><option key={m.id} value={m.id}>{m.home} vs {m.away}</option>)}</select></div>
       </section>
       <div className="dashboard-grid">
-        <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Pass'?'↗':value==='Shot'?'◎':'◌'}</span>{label}</button>)}</div>
+        <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
           <div className="sidebar-divider"/><div className="side-label">Filters</div>
           <label className="field">Team<select value={team} onChange={e=>{setTeam(e.target.value);setPlayer('All players');setSelectedId(null)}}><option>All teams</option>{teams.map(t=><option key={t}>{t}</option>)}</select></label>
           <label className="field" id="player-filter">Player<select value={player} onChange={e=>{setPlayer(e.target.value);setSelectedId(null)}}><option>All players</option>{players.map(p=><option key={p}>{p}</option>)}</select></label>
@@ -121,9 +177,9 @@ export default function App(){
           <label className="check-line"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> Show all filtered events</label>
         </aside>
         <section className="visual panel"><div className="visual-head"><div><span className="small-heading">MATCH MAP</span><p>{current?`${current.home} / ${current.away}`:'Match events'}</p></div><span className="visual-counter">{number(filtered.length)} events</span></div>
-          {error?<div className="error">{error} <a href="https://github.com/tiffendericbourg/spatial-xi/actions/workflows/update-data.yml">Update data ↗</a></div>:<Pitch events={showAll?displayEvents:displayEvents.slice(0,400)} selectedId={selectedId} onSelect={setSelectedId}/>}
-          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">Select a point for details</span></div>
-          <div className="event-strip">{selected?<><strong>{selected.player||'Unknown player'}</strong><span>{selected.team} · {selected.type} · {selected.minute}' · {selected.outcome||'No outcome recorded'}</span>{Number.isFinite(selected.xg)&&<span>xG {selected.xg.toFixed(3)}</span>}</>:<span>Explore passes, shots and their recorded locations on the pitch.</span>}</div>
+          {error?<div className="error">{error} <a href="https://github.com/tiffendericbourg/spatial-xi/actions/workflows/update-data.yml">Update data ↗</a></div>:mode==='Heatmap'?<HeatPitch events={filtered}/>:mode==='Network'?<NetworkPitch events={networkEvents} onPlayer={handleNetworkPlayer}/>:<Pitch events={showAll?displayEvents:displayEvents.slice(0,400)} selectedId={selectedId} onSelect={setSelectedId}/>}
+          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">{mode==='Network'?'Select a player · choose a team for its network':mode==='Heatmap'?'Darker areas = more actions':'Select a point for details'}</span></div>
+          <div className="event-strip">{selected?<><strong>{selected.player||'Unknown player'}</strong><span>{selected.team} · {selected.type} · {selected.minute}' · {selected.outcome||'No outcome recorded'}</span>{Number.isFinite(selected.xg)&&<span>xG {selected.xg.toFixed(3)}</span>}{selected.type==='Pass'&&<span>Distance {formatMeters(distance(selected))}{selected.recipient?` · To ${selected.recipient}`:''}</span>}</>:<span>Explore passes, shots and their recorded locations on the pitch.</span>}</div>
         </section>
         <aside className="insights panel" id="team-insights"><div className="insight-tabs">{['Summary','Events'].map(v=><button className={insightTab===v?'active':''} key={v} onClick={()=>setInsightTab(v)}>{v}</button>)}</div>
           {insightTab==='Summary'?<><div className="team-key"><span><i className="home-dot"/> {current?.home||'Home'}</span><span><i className="away-dot"/> {current?.away||'Away'}</span></div>
@@ -134,6 +190,14 @@ export default function App(){
           </>:<div className="event-list">{filtered.slice(0,16).map(e=><button key={e.id} onClick={()=>setSelectedId(e.id)}><b>{e.minute}'</b><span>{e.player||'Unknown'} · {e.type}</span></button>)}{!filtered.length&&<p>No events for this selection.</p>}</div>}
         </aside>
       </div>
+      <section className="distance-section panel" aria-label="Passing distance insights">
+        <div className="distance-heading"><span className="small-heading">PASS DISTANCE / METRES</span><span>Based on recorded start and end locations · approx. 105 × 68 m pitch</span></div>
+        <div className="distance-grid">
+          <div><span>Average pass</span><strong>{formatMeters(averageDistance)}</strong><small>{number(passDistances.length)} located passes in selection</small></div>
+          <div><span>Longest pass</span><strong>{formatMeters(longest?.meters)}</strong><small>{longest ? `${longest.player || 'Unknown'} · ${longest.minute}'` : 'No passes'}</small></div>
+          <div><span>Most metres passed</span><strong>{distanceLeader ? formatMeters(distanceLeader[1]) : '—'}</strong><small>{distanceLeader?.[0] || 'No passes'}</small></div>
+        </div>
+      </section>
       <section className="detail-cards" aria-label="Match breakdown">
         <article className="small-card panel"><MiniPitch events={homePasses} color="#174b83"/><div><span>HOME TEAM</span><h3>{current?.home||'Home'} passes</h3><strong>{number(stats.home.passes)}</strong></div></article>
         <article className="small-card panel"><MiniPitch events={awayPasses} color="#f26f7d"/><div><span>AWAY TEAM</span><h3>{current?.away||'Away'} passes</h3><strong>{number(stats.away.passes)}</strong></div></article>
