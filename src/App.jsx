@@ -92,6 +92,29 @@ function Pitch({ events, selectedId, onSelect }) {
   </svg>
 }
 
+function KeeperAnalysis({ events, current }) {
+  const [keeperTeam,setKeeperTeam]=useState('')
+  const [keeperName,setKeeperName]=useState('')
+  const teamNames=[current?.home,current?.away].filter(Boolean)
+  const activeTeam=teamNames.includes(keeperTeam)?keeperTeam:teamNames[0]
+  const keeperActions=events.filter(e=>e.type==='Goal Keeper'&&e.team===activeTeam)
+  const keeperNames=[...new Set(keeperActions.map(e=>e.player).filter(Boolean))]
+  const activeKeeper=keeperNames.includes(keeperName)?keeperName:keeperNames[0]
+  const gkEvents=keeperActions.filter(e=>e.player===activeKeeper)
+  const shots=events.filter(e=>e.type==='Shot'&&e.team!==activeTeam&&e.shot_type!=='Penalty'&&e.shot_type!=='Free Kick'&&valid(e.x,e.y))
+  const zones=[{name:'Left flank',check:e=>e.y<80/3},{name:'Centre',check:e=>e.y>=80/3&&e.y<=160/3},{name:'Right flank',check:e=>e.y>160/3}]
+  const corners=events.filter(e=>e.type==='Pass'&&e.team!==activeTeam&&e.is_corner)
+  const box6=gkEvents.filter(e=>valid(e.x,e.y)&&e.x<=6.5&&e.y>=30&&e.y<=50)
+  const cornerResponses=box6.filter(e=>corners.some(c=>c.period===e.period&&Math.abs((c.minute*60+(c.second||0))-(e.minute*60+(e.second||0)))<=12))
+  return <section className="keeper-section panel" id="goalkeepers">
+    <div className="forward-title"><div><span className="small-heading">GOALKEEPER STUDY</span><h2>Shot origins & six-yard box</h2><p>Exploratory match-level analysis. Shot sides refer to the attacker's pitch side, not the keeper's left/right hand.</p></div></div>
+    <div className="keeper-controls"><label>Defending team<select value={activeTeam||''} onChange={e=>{setKeeperTeam(e.target.value);setKeeperName('')}}>{teamNames.map(n=><option key={n}>{n}</option>)}</select></label><label>Goalkeeper<select value={activeKeeper||''} onChange={e=>setKeeperName(e.target.value)}>{keeperNames.length?keeperNames.map(n=><option key={n}>{n}</option>):<option value="">No keeper actions</option>}</select></label></div>
+    <div className="keeper-metrics"><div><small>Opponent shots (open play)</small><strong>{shots.length}</strong></div><div><small>Keeper actions recorded</small><strong>{gkEvents.length}</strong></div><div><small>Actions in six-yard box</small><strong>{box6.length}</strong></div><div><small>Near corner delivery (±12 s)</small><strong>{cornerResponses.length}</strong></div></div>
+    <div className="keeper-zones">{zones.map(zone=>{const items=shots.filter(zone.check);const goals=items.filter(e=>e.outcome==='Goal').length;return <div key={zone.name}><span>{zone.name}</span><strong>{items.length} shots</strong><small>{goals} goals · {items.length?Math.round(goals/items.length*100):0}% goal rate</small><div className="keeper-meter"><i style={{width:shots.length?Math.round(items.length/shots.length*100)+'%':'0%'}}/></div></div>})}</div>
+    <p className="forward-note">Six-yard box uses the standardized defensive coordinates (first 6.5 m, central 20 m). Corner proximity is inferred by timing, not proven causality. Shot outcomes describe the defending team's performance, not necessarily this individual goalkeeper. Goal rates need larger samples to identify a reliable weakness.</p>
+  </section>
+}
+
 function MiniPitch({ events, color }) {
   return <svg className="mini-pitch" viewBox="0 0 120 80" aria-hidden="true">
     <rect width="120" height="80" fill="#e8f3e7"/><g fill="none" stroke="#fff" strokeWidth=".7"><rect x="3" y="3" width="114" height="74"/><path d="M60 3v74"/><circle cx="60" cy="40" r="10"/><rect x="3" y="23" width="17" height="34"/><rect x="100" y="23" width="17" height="34"/></g>
@@ -197,7 +220,7 @@ export default function App(){
   const modes=[['Pass','Passes'],['Forward','Forward passes'],['Efficiency','Pass efficiency'],['Shot','Shots'],['Carry','Carries'],['Dribble','Dribbles'],['Ball Receipt*','Ball receipts'],['All events','All actions'],['Network','Pass network'],['Heatmap','Heat map']]
 
   return <div className="site" id="home">
-    <header className="topbar"><nav aria-label="Main navigation"><a href="#explorer" className="nav-active">Matches</a><a href="#team-insights">Teams</a><a href="#player-filter">Players</a><a href="#about">About</a></nav><select className="competition-label competition-select" aria-label="World Cup tournament" value={year} onChange={e=>changeYear(e.target.value)}><option value="2018">World Cup 2018</option><option value="2022" disabled={!matches.some(m=>m.year===2022)}>World Cup 2022</option></select></header>
+    <header className="topbar"><nav aria-label="Main navigation"><a href="#explorer" className="nav-active">Matches</a><a href="#team-insights">Teams</a><a href="#player-filter">Players</a><a href="#goalkeepers">Keepers</a><a href="#about">About</a></nav><select className="competition-label competition-select" aria-label="World Cup tournament" value={year} onChange={e=>changeYear(e.target.value)}><option value="2018">World Cup 2018</option><option value="2022" disabled={!matches.some(m=>m.year===2022)}>World Cup 2022</option></select></header>
     <main className="dashboard" id="explorer">
       <section className="fixture-bar" aria-label="Match selection">
         <div className="fixture-select"><label htmlFor="country">Country</label><select id="country" value={country} onChange={e=>changeCountry(e.target.value)}><option>All countries</option>{countries.map(c=><option key={c}>{c}</option>)}</select></div>
@@ -259,6 +282,7 @@ export default function App(){
         </button>)}{!efficiencyRanking.length&&<p className="forward-empty">No eligible passes for this selection.</p>}</div>
         <p className="forward-note">PEI: forward metres × (1 + 0.4 × opponents bypassed) when 360 positions are available. Without 360: forward metres adjusted by pass directness. Experimental indicator; mixed observation coverage can affect comparisons.</p>
       </section>
+      <KeeperAnalysis key={matchId} events={byPeriod} current={current}/>
       <section className="detail-cards" aria-label="Match breakdown">
         <article className="small-card panel"><MiniPitch events={homePasses} color="#174b83"/><div><span>HOME TEAM</span><h3>{current?.home||'Home'} passes</h3><strong>{number(stats.home.passes)}</strong></div></article>
         <article className="small-card panel"><MiniPitch events={awayPasses} color="#f26f7d"/><div><span>AWAY TEAM</span><h3>{current?.away||'Away'} passes</h3><strong>{number(stats.away.passes)}</strong></div></article>
