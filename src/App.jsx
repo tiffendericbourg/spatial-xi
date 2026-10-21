@@ -78,13 +78,15 @@ function Pitch({ events, selectedId, onSelect }) {
     {events.map(e => {
       const x=e.x*10, y=e.y*10, ex=e.end_x*10, ey=e.end_y*10
       if (!valid(x,y)) return null
-      const shot=e.type==='Shot', active=e.id===selectedId
+      const shot=e.type==='Shot', dribble=e.type==='Dribble', active=e.id===selectedId
       const c=e._color || (shot ? '#f46d79':'#0c6d41')
       return <g key={e.id} tabIndex="0" role="button" className="pitch-action" aria-label={`${e.player || 'Player'} ${e.type}, minute ${e.minute}`}
         opacity={selectedId && !active ? .22 : 1} onClick={() => onSelect(e.id)}
         onKeyDown={ev => {if(ev.key==='Enter' || ev.key===' ') {ev.preventDefault();onSelect(e.id)}}}>
         {valid(ex,ey) && <line x1={x} y1={y} x2={ex} y2={ey} stroke={c} strokeWidth={active ? 4 : e._efficiency ? 2.5 + Math.min(4,efficiency(e)/30) : e._forward ? 2.5 + Math.min(3,forwardGain(e)/18) : 1.8} strokeDasharray={e.type==='Pass' && e.outcome!=='Complete' ? '8 6' : undefined} markerEnd={e.type==='Pass' && (active || e._forward) ? 'url(#pass-arrow)' : undefined} opacity={active ? 1 : .43}/>}
-        <circle cx={x} cy={y} r={active ? 8 : shot ? 5 : 3.2} fill={c} stroke={active ? '#fff' : 'none'} strokeWidth="3"/>
+        {dribble
+          ? <><circle cx={x} cy={y} r={active?13:9} fill={e.outcome==='Complete'?'#1e9b67':'#f26f7d'} stroke="white" strokeWidth={active?3:2} opacity=".95"/><circle cx={x} cy={y} r={active?5:3} fill="white"/></>
+          : <circle cx={x} cy={y} r={active ? 8 : shot ? 5 : 3.2} fill={c} stroke={active ? '#fff' : 'none'} strokeWidth="3"/>}
       </g>
     })}
   </svg>
@@ -205,7 +207,7 @@ export default function App(){
       <div className="dashboard-grid">
         <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Efficiency'?'✦':value==='Forward'?'⇢':value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
         </aside>
-        <section className="visual panel"><div className="visual-head"><div><span className="small-heading">MATCH MAP</span><p>{current?`${current.home} / ${current.away}`:'Match events'}</p></div><span className="visual-counter">{number(filtered.length)} {mode==='Forward'?'forward passes':'events'}</span></div>
+        <section className="visual panel"><div className="visual-head"><div><span className="small-heading">MATCH MAP</span><p>{current?`${current.home} / ${current.away}`:'Match events'}</p></div><span className="visual-counter">{number(filtered.length)} {mode==='Dribble'?'dribbles':mode==='Forward'?'forward passes':'events'}</span></div>
           <div className="pitch-filters" aria-label="Pitch filters">
           <label className="pitch-filter">Team<select value={team} onChange={e=>{setTeam(e.target.value);setPlayer('All players');setSelectedId(null)}}><option>All teams</option>{teams.map(t=><option key={t}>{t}</option>)}</select></label>
           <label className="pitch-filter" id="player-filter">Player<select value={player} onChange={e=>{setPlayer(e.target.value);setSelectedId(null)}}><option>All players</option>{players.map(p=><option key={p}>{p}</option>)}</select></label>
@@ -213,7 +215,7 @@ export default function App(){
           <label className="pitch-check"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> Show all filtered events</label>
           </div>
           {error?<div className="error">{error} <a href="https://github.com/tiffendericbourg/spatial-xi/actions/workflows/update-data.yml">Update data ↗</a></div>:mode==='Heatmap'?<HeatPitch events={filtered}/>:mode==='Network'?<NetworkPitch events={networkEvents} onPlayer={handleNetworkPlayer}/>:<Pitch events={showAll?displayEvents:displayEvents.slice(0,400)} selectedId={selectedId} onSelect={setSelectedId}/>}
-          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">{mode==='Network'?'Select a player · choose a team for its network':mode==='Heatmap'?'Darker areas = more actions':mode==='Efficiency'?'Amber arrows · thicker = higher efficiency':mode==='Forward'?'Green arrows · thicker = greater territory gained':'Select a point for details'}</span></div>
+          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">{mode==='Network'?'Select a player · choose a team for its network':mode==='Dribble'?'Green = successful dribble · coral = unsuccessful':mode==='Heatmap'?'Darker areas = more actions':mode==='Efficiency'?'Amber arrows · thicker = higher efficiency':mode==='Forward'?'Green arrows · thicker = greater territory gained':'Select a point for details'}</span></div>
           <div className="event-strip">{selected?<><strong>{selected.player||'Unknown player'}</strong><span>{selected.team} · {selected.type} · {selected.minute}' · {selected.outcome||'No outcome recorded'}</span>{Number.isFinite(selected.xg)&&<span>xG {selected.xg.toFixed(3)}</span>}{selected.type==='Pass'&&<span>{mode==='Forward'?`Ground gained ${formatMeters(forwardGain(selected))} · `:''}Distance {formatMeters(distance(selected))}{selected.recipient?` · To ${selected.recipient}`:''}{efficiency(selected)>0?` · PEI ${efficiency(selected).toFixed(1)}${Number.isFinite(selected.bypassed)?` · ${selected.bypassed} visible opponents bypassed`:' · estimated'}`:''}</span>}</>:<span>Explore passes, shots and their recorded locations on the pitch.</span>}</div>
         </section>
         <aside className="insights panel" id="team-insights"><div className="insight-tabs">{['Summary','Events'].map(v=><button className={insightTab===v?'active':''} key={v} onClick={()=>setInsightTab(v)}>{v}</button>)}</div>
