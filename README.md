@@ -12,7 +12,7 @@ npm run dev
 
 ## Data
 
-The Python script downloads a small set of publicly available StatsBomb matches, extracts passes and shots, and writes compact JSON files to `public/data/`. Missing locations are never invented. An unavailable download does not overwrite existing JSON files.
+The Python script downloads all available matches from StatsBomb's men's 2018 World Cup competition (competition 43, season 3), extracts passes and shots, and writes compact JSON files to `public/data/`. Missing locations are never invented. An unavailable download does not overwrite existing JSON files.
 
 ## Deployment
 
@@ -22,4 +22,4 @@ StatsBomb Open Data: https://github.com/statsbomb/open-data — comply with its 
 
 ## Roadmap
 
-The first release includes a module overview and Match Explorer with passing and shooting events. Other modules are planned, not simulated.
+The Match Explorer supports country and match selection, passes and shots on an interactive pitch, team and player filters, period selection, recorded xG and passing completion rate. Individual JSON files are cached between data refreshes; a failed download does not replace a valid cached match. Other modules are planned, not simulated.
