@@ -53,6 +53,7 @@ function NetworkPitch({ events, onPlayer }) {
 
 function Pitch({ events, selectedId, onSelect }) {
   return <svg viewBox="0 0 1200 800" className="pitch" aria-label="Football event map" role="img">
+    <defs><marker id="pass-arrow" markerWidth="5" markerHeight="5" refX="3.5" refY="2.5" orient="auto"><path d="M0 0L5 2.5L0 5" fill="none" stroke="#34546a" strokeWidth="1"/></marker></defs>
     <rect width="1200" height="800" fill="#e6f3e1"/>
     {Array.from({length: 10}, (_, i) => <rect key={i} x={i * 120} width="120" height="800" fill={i % 2 ? '#d9ebd5' : '#edf7e9'} opacity=".55"/>)}
     <g stroke="#ffffff" strokeWidth="3.5" fill="none">
@@ -70,7 +71,7 @@ function Pitch({ events, selectedId, onSelect }) {
       return <g key={e.id} tabIndex="0" role="button" className="pitch-action" aria-label={`${e.player || 'Player'} ${e.type}, minute ${e.minute}`}
         opacity={selectedId && !active ? .22 : 1} onClick={() => onSelect(e.id)}
         onKeyDown={ev => {if(ev.key==='Enter' || ev.key===' ') {ev.preventDefault();onSelect(e.id)}}}>
-        {valid(ex,ey) && <line x1={x} y1={y} x2={ex} y2={ey} stroke={c} strokeWidth={active ? 4 : 2} opacity={active ? 1 : .48}/>}
+        {valid(ex,ey) && <line x1={x} y1={y} x2={ex} y2={ey} stroke={c} strokeWidth={active ? 4 : 1.8} strokeDasharray={e.type==='Pass' && e.outcome!=='Complete' ? '8 6' : undefined} markerEnd={e.type==='Pass' && active ? 'url(#pass-arrow)' : undefined} opacity={active ? 1 : .43}/>}
         <circle cx={x} cy={y} r={active ? 8 : shot ? 5 : 3.2} fill={c} stroke={active ? '#fff' : 'none'} strokeWidth="3"/>
       </g>
     })}
