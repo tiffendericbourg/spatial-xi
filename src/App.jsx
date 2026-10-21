@@ -58,6 +58,7 @@ function Pitch({ events, selectedId, onSelect }) {
 function Explorer() {
   const [matches, setMatches] = useState([])
   const [matchId, setMatchId] = useState('')
+  const [matchTeam, setMatchTeam] = useState('All countries')
   const [events, setEvents] = useState([])
   const [team, setTeam] = useState('All teams')
   const [player, setPlayer] = useState('All players')
@@ -84,6 +85,8 @@ function Explorer() {
       .catch(() => setError('This match is temporarily unavailable.'))
   }, [matchId])
 
+  const countries = [...new Set(matches.flatMap(match => [match.home, match.away]))].sort()
+  const visibleMatches = matches.filter(match => matchTeam === 'All countries' || match.home === matchTeam || match.away === matchTeam)
   const currentMatch = matches.find(match => String(match.id) === matchId)
   const teams = [...new Set(events.map(event => event.team).filter(Boolean))]
   const players = [...new Set(events.filter(event => team === 'All teams' || event.team === team).map(event => event.player).filter(Boolean))].sort()
@@ -96,6 +99,10 @@ function Explorer() {
   const selected = filtered.find(event => event.id === selectedId)
   const passes = filtered.filter(event => event.type === 'Pass')
   const shots = filtered.filter(event => event.type === 'Shot')
+  const completedPasses = passes.filter(event => event.outcome === 'Complete').length
+  const accuracy = passes.length ? Math.round(100 * completedPasses / passes.length) : null
+  const knownXg = shots.filter(event => Number.isFinite(event.xg))
+  const totalXg = knownXg.reduce((sum, event) => sum + event.xg, 0)
 
   return (
     <section className="explorer" id="explorer">
@@ -105,9 +112,12 @@ function Explorer() {
       </div>
       <div className="explorer-shell">
         <div className="control-bar">
+          <label>COUNTRY<select value={matchTeam} onChange={e => { const next = e.target.value; setMatchTeam(next); const first = matches.find(match => next === 'All countries' || match.home === next || match.away === next); if (first) setMatchId(String(first.id)) }}>
+            <option>All countries</option>{countries.map(country => <option key={country}>{country}</option>)}
+          </select></label>
           <label>MATCH<select value={matchId} onChange={e => setMatchId(e.target.value)} disabled={!matches.length}>
             {!matches.length && <option>Loading matches…</option>}
-            {matches.map(match => <option value={match.id} key={match.id}>{match.home} vs {match.away}</option>)}
+            {visibleMatches.map(match => <option value={match.id} key={match.id}>{match.date.slice(5)} · {match.home} vs {match.away}</option>)}
           </select></label>
           <label>TEAM<select value={team} onChange={e => { setTeam(e.target.value); setPlayer('All players'); setSelectedId(null) }}>
             <option>All teams</option>{teams.map(value => <option key={value}>{value}</option>)}</select></label>
@@ -128,8 +138,10 @@ function Explorer() {
           <aside className="insights">
             <span className="eyebrow">MATCH SNAPSHOT</span>
             <h3>{currentMatch ? `${currentMatch.home} vs ${currentMatch.away}` : 'Awaiting match data'}</h3>
-            <p className="match-date">{currentMatch ? `${currentMatch.competition} · ${currentMatch.date}` : 'StatsBomb Open Data'}</p>
+            <p className="match-date">{currentMatch ? `${currentMatch.competition} · ${currentMatch.stage || 'Tournament'} · ${currentMatch.date}` : 'StatsBomb Open Data'}</p>
+            {currentMatch && Number.isFinite(currentMatch.home_score) && Number.isFinite(currentMatch.away_score) && <p className="match-score">{currentMatch.home} <strong>{currentMatch.home_score} – {currentMatch.away_score}</strong> {currentMatch.away}</p>}
             <div className="numbers"><div><strong>{filtered.length.toLocaleString()}</strong><span>EVENTS</span></div><div><strong>{passes.length.toLocaleString()}</strong><span>PASSES</span></div><div><strong>{shots.length.toLocaleString()}</strong><span>SHOTS</span></div></div>
+            <div className="secondary-numbers"><span>PASS ACCURACY <strong>{accuracy === null ? '—' : `${accuracy}%`}</strong></span><span>RECORDED xG <strong>{knownXg.length ? totalXg.toFixed(2) : '—'}</strong></span></div>
             <div className="event-detail">
               <span className="eyebrow">EVENT INSPECTOR</span>
               {selected ? <><h4>{selected.player || 'Unknown player'}</h4><p>{selected.team} · {selected.type} · {selected.minute}'</p>
@@ -138,7 +150,7 @@ function Explorer() {
                 <p>Location: ({selected.x}, {selected.y})</p></> :
                 <p>Select a pass or shot on the pitch to explore its details.</p>}
             </div>
-            <p className="note">Only recorded event coordinates are shown. Lines connect recorded start and end locations; they are not player tracking paths.</p>
+            <p className="note">Statistics reflect the current filters. Pass accuracy uses StatsBomb pass outcomes, and xG sums only recorded values. Only recorded event coordinates are shown. Lines connect recorded start and end locations; they are not player tracking paths.</p>
           </aside>
         </div>
       </div>
