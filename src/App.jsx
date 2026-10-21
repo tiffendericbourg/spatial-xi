@@ -6,7 +6,8 @@ const number = n => n.toLocaleString('en-US')
 const distance = e => Number.isFinite(e.end_x) && Number.isFinite(e.end_y)
   ? Math.hypot((e.end_x - e.x) * 105 / 120, (e.end_y - e.y) * 68 / 80) : null
 const formatMeters = d => d == null ? '—' : `${d.toFixed(1)} m`
-const completedPass = e => e.type === 'Pass' && e.outcome === 'Complete'
+const outfieldAction = e => e.type !== 'Pass' || !e.is_goalkeeper
+const completedPass = e => e.type === 'Pass' && !e.is_goalkeeper && e.outcome === 'Complete'
 // StatsBomb pitch coordinates always increase towards the attacking goal.
 const forwardGain = e => completedPass(e) && valid(e.x, e.y) && valid(e.end_x, e.end_y)
   ? Math.max(0, (e.end_x - e.x) * 105 / 120) : 0
@@ -143,9 +144,9 @@ export default function App(){
   const yearMatches=matches.filter(m=>String(m.year||2018)===year)
   const fixtures=yearMatches.filter(m=>country==='All countries'||m.home===country||m.away===country)
   const teams=[...new Set(events.map(e=>e.team).filter(Boolean))]
-  const players=[...new Set(events.filter(e=>team==='All teams'||e.team===team).map(e=>e.player).filter(Boolean))].sort()
+  const players=[...new Set(events.filter(e=>(team==='All teams'||e.team===team)&&outfieldAction(e)).map(e=>e.player).filter(Boolean))].sort()
   const byPeriod=useMemo(()=>events.filter(e=>period==='Full match'||String(e.period)===period),[events,period])
-  const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||(mode==='Forward'&&isForwardPass(e))||(mode==='Efficiency'&&efficiency(e)>0)||e.type===mode)),[byPeriod,team,player,mode])
+  const filtered=useMemo(()=>byPeriod.filter(e=>outfieldAction(e)&&(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||(mode==='Forward'&&isForwardPass(e))||(mode==='Efficiency'&&efficiency(e)>0)||e.type===mode)),[byPeriod,team,player,mode])
   const displayEvents=useMemo(()=>filtered.map(e=>({...e,_forward:mode==='Forward'||mode==='Efficiency',_efficiency:mode==='Efficiency',_color:mode==='Efficiency'?'#b66d18':mode==='Forward'?'#11855b':e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current,mode])
   const selected=filtered.find(e=>e.id===selectedId)
   const passesForMetrics=filtered.filter(e=>e.type==='Pass' && distance(e)!==null)
@@ -153,7 +154,7 @@ export default function App(){
   const longest=passDistances.length?passDistances.reduce((a,b)=>a.meters>b.meters?a:b):null
   const averageDistance=passDistances.length?passDistances.reduce((sum,e)=>sum+e.meters,0)/passDistances.length:null
   const distanceLeader=Object.entries(passDistances.reduce((acc,e)=>{if(e.player)acc[e.player]=(acc[e.player]||0)+e.meters;return acc},{})).sort((a,b)=>b[1]-a[1])[0]
-  const progressivePasses=byPeriod.filter(e=>(team==='All teams'||e.team===team)&&isForwardPass(e))
+  const progressivePasses=byPeriod.filter(e=>outfieldAction(e)&&(team==='All teams'||e.team===team)&&isForwardPass(e))
   const forwardRanking=Object.values(progressivePasses.reduce((result,e)=>{
     if(!e.player)return result
     const key=`${e.team}::${e.player}`
@@ -163,7 +164,7 @@ export default function App(){
     return result
   },{})).sort((a,b)=>b.gain-a.gain)
   const forwardTotal=filtered.filter(isForwardPass).reduce((sum,e)=>sum+forwardGain(e),0)
-  const efficiencyRanking=Object.values(byPeriod.filter(e=>(team==='All teams'||e.team===team)&&efficiency(e)>0).reduce((acc,e)=>{
+  const efficiencyRanking=Object.values(byPeriod.filter(e=>outfieldAction(e)&&(team==='All teams'||e.team===team)&&efficiency(e)>0).reduce((acc,e)=>{
     if(!e.player)return acc
     const key=e.team+'::'+e.player
     if(!acc[key])acc[key]={team:e.team,player:e.player,score:0,passes:0,bypassed:0,observed:0}
@@ -178,7 +179,7 @@ export default function App(){
   const stats=useMemo(()=> {
     const collect=name=>{
       const teamEvents=byPeriod.filter(e=>e.team===name)
-      const passes=teamEvents.filter(e=>e.type==='Pass')
+      const passes=teamEvents.filter(e=>e.type==='Pass'&&!e.is_goalkeeper)
       const shots=teamEvents.filter(e=>e.type==='Shot')
       const complete=passes.filter(e=>e.outcome==='Complete').length
       const xg=shots.filter(e=>Number.isFinite(e.xg)).reduce((s,e)=>s+e.xg,0)
@@ -186,8 +187,8 @@ export default function App(){
     }
     return {home:collect(current?.home),away:collect(current?.away)}
   },[byPeriod,current])
-  const homePasses=byPeriod.filter(e=>e.team===current?.home&&e.type==='Pass')
-  const awayPasses=byPeriod.filter(e=>e.team===current?.away&&e.type==='Pass')
+  const homePasses=byPeriod.filter(e=>e.team===current?.home&&e.type==='Pass'&&!e.is_goalkeeper)
+  const awayPasses=byPeriod.filter(e=>e.team===current?.away&&e.type==='Pass'&&!e.is_goalkeeper)
   const keyPasses=byPeriod.filter(e=>e.type==='Shot')
   const changeCountry=value=>{setCountry(value);const first=yearMatches.find(m=>value==='All countries'||m.home===value||m.away===value);if(first)setMatchId(String(first.id))}
   const changeYear=value=>{setYear(value);setCountry('All countries');const first=matches.find(m=>String(m.year||2018)===value);if(first)setMatchId(String(first.id))}
