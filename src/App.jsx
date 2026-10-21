@@ -172,6 +172,7 @@ function Metric({ label, left, right, leftName, rightName }) {
 export default function App(){
   const [matches,setMatches]=useState([])
   const [year,setYear]=useState('2018')
+  const [page,setPage]=useState('matches')
   const [matchId,setMatchId]=useState('')
   const [events,setEvents]=useState([])
   const [country,setCountry]=useState('All countries')
@@ -256,13 +257,14 @@ export default function App(){
   const modes=[['Pass','Passes'],['Forward','Forward passes'],['Efficiency','Pass efficiency'],['Shot','Shots'],['Carry','Carries'],['Dribble','Dribbles'],['Ball Receipt*','Ball receipts'],['All events','All actions'],['Network','Pass network'],['Heatmap','Heat map']]
 
   return <div className="site" id="home">
-    <header className="topbar"><nav aria-label="Main navigation"><a href="#explorer" className="nav-active">Matches</a><a href="#team-insights">Teams</a><a href="#player-filter">Players</a><a href="#goalkeepers">Keepers</a><a href="#about">About</a></nav><select className="competition-label competition-select" aria-label="World Cup tournament" value={year} onChange={e=>changeYear(e.target.value)}><option value="2018">World Cup 2018</option><option value="2022" disabled={!matches.some(m=>m.year===2022)}>World Cup 2022</option></select></header>
+    <header className="topbar"><nav aria-label="Main navigation"><button className={page==='matches'?'nav-active':''} onClick={()=>setPage('matches')}>Matches</button><button className={page==='keepers'?'nav-active':''} onClick={()=>setPage('keepers')}>Goalkeepers</button><a href="#about">About</a></nav><select className="competition-label competition-select" aria-label="World Cup tournament" value={year} onChange={e=>changeYear(e.target.value)}><option value="2018">World Cup 2018</option><option value="2022" disabled={!matches.some(m=>m.year===2022)}>World Cup 2022</option></select></header>
     <main className="dashboard" id="explorer">
       <section className="fixture-bar" aria-label="Match selection">
         <div className="fixture-select"><label htmlFor="country">Country</label><select id="country" value={country} onChange={e=>changeCountry(e.target.value)}><option>All countries</option>{countries.map(c=><option key={c}>{c}</option>)}</select></div>
         <div className="fixture-centre"><div className="fixture-score">{current && Number.isFinite(current.home_score)&&Number.isFinite(current.away_score)?`${current.home_score} - ${current.away_score}`:'vs'}</div><div className="fixture-date">{current?.date||'Choose a match'}</div></div>
         <div className="fixture-select"><label htmlFor="fixture">Match</label><select id="fixture" value={matchId} onChange={e=>setMatchId(e.target.value)} disabled={!matches.length}>{!matches.length&&<option>Loading matches…</option>}{fixtures.map(m=><option key={m.id} value={m.id}>{m.home} vs {m.away}</option>)}</select></div>
       </section>
+      {page==='keepers' ? <KeeperAnalysis key={matchId} events={byPeriod} current={current}/> : <>
       <div className="dashboard-grid">
         <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Efficiency'?'✦':value==='Forward'?'⇢':value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
         </aside>
@@ -318,12 +320,12 @@ export default function App(){
         </button>)}{!efficiencyRanking.length&&<p className="forward-empty">No eligible passes for this selection.</p>}</div>
         <p className="forward-note">PEI: forward metres × (1 + 0.4 × opponents bypassed) when 360 positions are available. Without 360: forward metres adjusted by pass directness. Experimental indicator; mixed observation coverage can affect comparisons.</p>
       </section>
-      <KeeperAnalysis key={matchId} events={byPeriod} current={current}/>
       <section className="detail-cards" aria-label="Match breakdown">
         <article className="small-card panel"><MiniPitch events={homePasses} color="#174b83"/><div><span>HOME TEAM</span><h3>{current?.home||'Home'} passes</h3><strong>{number(stats.home.passes)}</strong></div></article>
         <article className="small-card panel"><MiniPitch events={awayPasses} color="#f26f7d"/><div><span>AWAY TEAM</span><h3>{current?.away||'Away'} passes</h3><strong>{number(stats.away.passes)}</strong></div></article>
         <article className="small-card panel"><MiniPitch events={keyPasses} color="#137d52"/><div><span>SHOT LOCATIONS</span><h3>Recorded shots</h3><strong>{number(keyPasses.length)}</strong></div></article>
       </section>
+      </>}
       <footer id="about"><span>Spatial XI · Football spatial analysis</span><span>2018 World Cup events · <a href="https://github.com/statsbomb/open-data" target="_blank" rel="noreferrer">StatsBomb Open Data ↗</a> · <a href="https://github.com/tiffendericbourg/spatial-xi" target="_blank" rel="noreferrer">GitHub ↗</a></span></footer>
     </main>
   </div>
