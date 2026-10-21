@@ -7,6 +7,10 @@ const distance = e => Number.isFinite(e.end_x) && Number.isFinite(e.end_y)
   ? Math.hypot((e.end_x - e.x) * 105 / 120, (e.end_y - e.y) * 68 / 80) : null
 const formatMeters = d => d == null ? '—' : `${d.toFixed(1)} m`
 const completedPass = e => e.type === 'Pass' && e.outcome === 'Complete'
+// StatsBomb pitch coordinates always increase towards the attacking goal.
+const forwardGain = e => completedPass(e) && valid(e.x, e.y) && valid(e.end_x, e.end_y)
+  ? Math.max(0, (e.end_x - e.x) * 105 / 120) : 0
+const isForwardPass = e => forwardGain(e) > 0
 const pitchLines = <g fill="none" stroke="#fff" strokeWidth="3"><rect x="24" y="24" width="1152" height="752"/><path d="M600 24V776"/><circle cx="600" cy="400" r="92"/><rect x="24" y="205" width="175" height="390"/><rect x="1001" y="205" width="175" height="390"/><rect x="24" y="302" width="61" height="196"/><rect x="1115" y="302" width="61" height="196"/></g>
 
 function HeatPitch({ events }) {
@@ -71,7 +75,7 @@ function Pitch({ events, selectedId, onSelect }) {
       return <g key={e.id} tabIndex="0" role="button" className="pitch-action" aria-label={`${e.player || 'Player'} ${e.type}, minute ${e.minute}`}
         opacity={selectedId && !active ? .22 : 1} onClick={() => onSelect(e.id)}
         onKeyDown={ev => {if(ev.key==='Enter' || ev.key===' ') {ev.preventDefault();onSelect(e.id)}}}>
-        {valid(ex,ey) && <line x1={x} y1={y} x2={ex} y2={ey} stroke={c} strokeWidth={active ? 4 : 1.8} strokeDasharray={e.type==='Pass' && e.outcome!=='Complete' ? '8 6' : undefined} markerEnd={e.type==='Pass' && active ? 'url(#pass-arrow)' : undefined} opacity={active ? 1 : .43}/>}
+        {valid(ex,ey) && <line x1={x} y1={y} x2={ex} y2={ey} stroke={c} strokeWidth={active ? 4 : e._forward ? 2.5 + Math.min(3,forwardGain(e)/18) : 1.8} strokeDasharray={e.type==='Pass' && e.outcome!=='Complete' ? '8 6' : undefined} markerEnd={e.type==='Pass' && (active || e._forward) ? 'url(#pass-arrow)' : undefined} opacity={active ? 1 : .43}/>}
         <circle cx={x} cy={y} r={active ? 8 : shot ? 5 : 3.2} fill={c} stroke={active ? '#fff' : 'none'} strokeWidth="3"/>
       </g>
     })}
@@ -132,14 +136,24 @@ export default function App(){
   const teams=[...new Set(events.map(e=>e.team).filter(Boolean))]
   const players=[...new Set(events.filter(e=>team==='All teams'||e.team===team).map(e=>e.player).filter(Boolean))].sort()
   const byPeriod=useMemo(()=>events.filter(e=>period==='Full match'||String(e.period)===period),[events,period])
-  const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||e.type===mode)),[byPeriod,team,player,mode])
-  const displayEvents=useMemo(()=>filtered.map(e=>({...e,_color:e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current])
+  const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||(mode==='Forward'&&isForwardPass(e))||e.type===mode)),[byPeriod,team,player,mode])
+  const displayEvents=useMemo(()=>filtered.map(e=>({...e,_forward:mode==='Forward',_color:mode==='Forward'?'#11855b':e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current,mode])
   const selected=filtered.find(e=>e.id===selectedId)
   const passesForMetrics=filtered.filter(e=>e.type==='Pass' && distance(e)!==null)
   const passDistances=passesForMetrics.map(e=>({...e,meters:distance(e)}))
   const longest=passDistances.length?passDistances.reduce((a,b)=>a.meters>b.meters?a:b):null
   const averageDistance=passDistances.length?passDistances.reduce((sum,e)=>sum+e.meters,0)/passDistances.length:null
   const distanceLeader=Object.entries(passDistances.reduce((acc,e)=>{if(e.player)acc[e.player]=(acc[e.player]||0)+e.meters;return acc},{})).sort((a,b)=>b[1]-a[1])[0]
+  const progressivePasses=byPeriod.filter(e=>(team==='All teams'||e.team===team)&&isForwardPass(e))
+  const forwardRanking=Object.values(progressivePasses.reduce((result,e)=>{
+    if(!e.player)return result
+    const key=`${e.team}::${e.player}`
+    if(!result[key])result[key]={player:e.player,team:e.team,gain:0,passes:0}
+    result[key].gain+=forwardGain(e)
+    result[key].passes++
+    return result
+  },{})).sort((a,b)=>b.gain-a.gain)
+  const forwardTotal=filtered.filter(isForwardPass).reduce((sum,e)=>sum+forwardGain(e),0)
   const chartEvents=mode==='Network'?filtered.filter(e=>e.type==='Pass'):filtered
   const networkTeam=team==='All teams'?(current?.home||''):team
   const networkEvents=chartEvents.filter(e=>e.team===networkTeam)
@@ -159,7 +173,7 @@ export default function App(){
   const awayPasses=byPeriod.filter(e=>e.team===current?.away&&e.type==='Pass')
   const keyPasses=byPeriod.filter(e=>e.type==='Shot')
   const changeCountry=value=>{setCountry(value);const first=matches.find(m=>value==='All countries'||m.home===value||m.away===value);if(first)setMatchId(String(first.id))}
-  const modes=[['Pass','Passes'],['Shot','Shots'],['Carry','Carries'],['Dribble','Dribbles'],['Ball Receipt*','Ball receipts'],['All events','All actions'],['Network','Pass network'],['Heatmap','Heat map']]
+  const modes=[['Pass','Passes'],['Forward','Forward passes'],['Shot','Shots'],['Carry','Carries'],['Dribble','Dribbles'],['Ball Receipt*','Ball receipts'],['All events','All actions'],['Network','Pass network'],['Heatmap','Heat map']]
 
   return <div className="site" id="home">
     <header className="topbar"><nav aria-label="Main navigation"><a href="#explorer" className="nav-active">Matches</a><a href="#team-insights">Teams</a><a href="#player-filter">Players</a><a href="#about">About</a></nav><span className="competition-label">World Cup 2018 <span>⌄</span></span></header>
@@ -170,17 +184,17 @@ export default function App(){
         <div className="fixture-select"><label htmlFor="fixture">Match</label><select id="fixture" value={matchId} onChange={e=>setMatchId(e.target.value)} disabled={!matches.length}>{!matches.length&&<option>Loading matches…</option>}{fixtures.map(m=><option key={m.id} value={m.id}>{m.home} vs {m.away}</option>)}</select></div>
       </section>
       <div className="dashboard-grid">
-        <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
+        <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Forward'?'⇢':value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
           <div className="sidebar-divider"/><div className="side-label">Filters</div>
           <label className="field">Team<select value={team} onChange={e=>{setTeam(e.target.value);setPlayer('All players');setSelectedId(null)}}><option>All teams</option>{teams.map(t=><option key={t}>{t}</option>)}</select></label>
           <label className="field" id="player-filter">Player<select value={player} onChange={e=>{setPlayer(e.target.value);setSelectedId(null)}}><option>All players</option>{players.map(p=><option key={p}>{p}</option>)}</select></label>
           <label className="field">Period<select value={period} onChange={e=>{setPeriod(e.target.value);setSelectedId(null)}}><option>Full match</option><option value="1">First half</option><option value="2">Second half</option><option value="3">Extra time 1</option><option value="4">Extra time 2</option></select></label>
           <label className="check-line"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> Show all filtered events</label>
         </aside>
-        <section className="visual panel"><div className="visual-head"><div><span className="small-heading">MATCH MAP</span><p>{current?`${current.home} / ${current.away}`:'Match events'}</p></div><span className="visual-counter">{number(filtered.length)} events</span></div>
+        <section className="visual panel"><div className="visual-head"><div><span className="small-heading">MATCH MAP</span><p>{current?`${current.home} / ${current.away}`:'Match events'}</p></div><span className="visual-counter">{number(filtered.length)} {mode==='Forward'?'forward passes':'events'}</span></div>
           {error?<div className="error">{error} <a href="https://github.com/tiffendericbourg/spatial-xi/actions/workflows/update-data.yml">Update data ↗</a></div>:mode==='Heatmap'?<HeatPitch events={filtered}/>:mode==='Network'?<NetworkPitch events={networkEvents} onPlayer={handleNetworkPlayer}/>:<Pitch events={showAll?displayEvents:displayEvents.slice(0,400)} selectedId={selectedId} onSelect={setSelectedId}/>}
-          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">{mode==='Network'?'Select a player · choose a team for its network':mode==='Heatmap'?'Darker areas = more actions':'Select a point for details'}</span></div>
-          <div className="event-strip">{selected?<><strong>{selected.player||'Unknown player'}</strong><span>{selected.team} · {selected.type} · {selected.minute}' · {selected.outcome||'No outcome recorded'}</span>{Number.isFinite(selected.xg)&&<span>xG {selected.xg.toFixed(3)}</span>}{selected.type==='Pass'&&<span>Distance {formatMeters(distance(selected))}{selected.recipient?` · To ${selected.recipient}`:''}</span>}</>:<span>Explore passes, shots and their recorded locations on the pitch.</span>}</div>
+          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">{mode==='Network'?'Select a player · choose a team for its network':mode==='Heatmap'?'Darker areas = more actions':mode==='Forward'?'Green arrows · thicker = greater territory gained':'Select a point for details'}</span></div>
+          <div className="event-strip">{selected?<><strong>{selected.player||'Unknown player'}</strong><span>{selected.team} · {selected.type} · {selected.minute}' · {selected.outcome||'No outcome recorded'}</span>{Number.isFinite(selected.xg)&&<span>xG {selected.xg.toFixed(3)}</span>}{selected.type==='Pass'&&<span>{mode==='Forward'?`Ground gained ${formatMeters(forwardGain(selected))} · `:''}Distance {formatMeters(distance(selected))}{selected.recipient?` · To ${selected.recipient}`:''}</span>}</>:<span>Explore passes, shots and their recorded locations on the pitch.</span>}</div>
         </section>
         <aside className="insights panel" id="team-insights"><div className="insight-tabs">{['Summary','Events'].map(v=><button className={insightTab===v?'active':''} key={v} onClick={()=>setInsightTab(v)}>{v}</button>)}</div>
           {insightTab==='Summary'?<><div className="team-key"><span><i className="home-dot"/> {current?.home||'Home'}</span><span><i className="away-dot"/> {current?.away||'Away'}</span></div>
@@ -198,6 +212,23 @@ export default function App(){
           <div><span>Longest pass</span><strong>{formatMeters(longest?.meters)}</strong><small>{longest ? `${longest.player || 'Unknown'} · ${longest.minute}'` : 'No passes'}</small></div>
           <div><span>Most metres passed</span><strong>{distanceLeader ? formatMeters(distanceLeader[1]) : '—'}</strong><small>{distanceLeader?.[0] || 'No passes'}</small></div>
         </div>
+      </section>
+      <section className="forward-section panel" aria-label="Forward passing leaderboard">
+        <div className="forward-title">
+          <div><span className="small-heading">TERRITORY GAINED</span><h2>Forward passing leaderboard</h2><p>Successful passes only. Ranked by cumulative metres advanced toward goal, not simply pass count.</p></div>
+          <button className="forward-open" onClick={()=>{setMode('Forward');setSelectedId(null)}}>View on pitch ↗</button>
+        </div>
+        <div className="forward-summary"><strong>{formatMeters(forwardTotal)}</strong><span>Forward metres in the current map selection</span></div>
+        <div className="forward-table">
+          {forwardRanking.slice(0,10).map((entry,i)=><button key={entry.team+entry.player} className={player===entry.player&&team===entry.team?'selected':''} onClick={()=>{setTeam(entry.team);setPlayer(entry.player);setMode('Forward');setSelectedId(null);document.getElementById('explorer')?.scrollIntoView({behavior:'smooth'})}}>
+            <span className="forward-rank">{String(i+1).padStart(2,'0')}</span>
+            <span className="forward-person"><b>{entry.player}</b><small>{entry.team} · {entry.passes} forward passes</small></span>
+            <span className="forward-track"><i style={{width:`${100*entry.gain/forwardRanking[0].gain}%`}}/></span>
+            <strong>{formatMeters(entry.gain)}</strong>
+          </button>)}
+          {!forwardRanking.length&&<p className="forward-empty">No completed forward passes for these filters.</p>}
+        </div>
+        <p className="forward-note">Direction follows StatsBomb's standardised attacking coordinates. Lateral distance is excluded from territory gained. Choose a row to highlight that player's passes on the pitch.</p>
       </section>
       <section className="detail-cards" aria-label="Match breakdown">
         <article className="small-card panel"><MiniPitch events={homePasses} color="#174b83"/><div><span>HOME TEAM</span><h3>{current?.home||'Home'} passes</h3><strong>{number(stats.home.passes)}</strong></div></article>
