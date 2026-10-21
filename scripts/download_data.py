@@ -47,7 +47,7 @@ def count_bypassed(event, visible):
 
 def convert_event(event, freeze=None):
     event_type = event.get("type", {}).get("name")
-    if event_type not in ("Pass", "Shot", "Carry", "Dribble", "Ball Receipt*"):
+    if event_type not in ("Pass", "Shot", "Carry", "Dribble", "Ball Receipt*", "Goal Keeper"):
         return None
     location = event.get("location")
     if not isinstance(location, list) or len(location) < 2:
@@ -65,7 +65,7 @@ def convert_event(event, freeze=None):
         "x": location[0],
         "y": location[1],
     }
-    details = event.get("pass", {}) if event_type == "Pass" else event.get("shot", {}) if event_type == "Shot" else event.get("carry", {}) if event_type == "Carry" else event.get("dribble", {}) if event_type == "Dribble" else event.get("ball_receipt", {})
+    details = event.get("pass", {}) if event_type == "Pass" else event.get("shot", {}) if event_type == "Shot" else event.get("carry", {}) if event_type == "Carry" else event.get("dribble", {}) if event_type == "Dribble" else event.get("goalkeeper", {}) if event_type == "Goal Keeper" else event.get("ball_receipt", {})
     end = details.get("end_location")
     if isinstance(end, list) and len(end) >= 2:
         action["end_x"], action["end_y"] = end[:2]
@@ -74,7 +74,12 @@ def convert_event(event, freeze=None):
         action["recipient"] = details.get("recipient", {}).get("name")
         if freeze is not None and action["outcome"] == "Complete":
             action["bypassed"] = count_bypassed(event, freeze)
+        action["is_corner"] = details.get("type", {}).get("name") == "Corner"
+    elif event_type == "Goal Keeper":
+        action["outcome"] = details.get("type", {}).get("name")
+        action["body_part"] = details.get("body_part", {}).get("name")
     elif event_type == "Shot":
+        action["shot_type"] = details.get("type", {}).get("name")
         action["outcome"] = details.get("outcome", {}).get("name")
         action["xg"] = details.get("statsbomb_xg")
     else:
@@ -85,7 +90,7 @@ def convert_event(event, freeze=None):
 def has_current_schema(path):
     try:
         with path.open(encoding="utf-8") as file:
-            return json.load(file).get("schema_version") == 4
+            return json.load(file).get("schema_version") == 5
     except (OSError, ValueError):
         return False
 
@@ -115,7 +120,7 @@ def main():
                 actions = [item for event in events if (item := convert_event(event, freeze_frames.get(event["id"]))) is not None]
                 if not actions:
                     raise ValueError("No passes or shots returned")
-                save_json(output, {"schema_version": 4, "match_id": match_id, "events": actions})
+                save_json(output, {"schema_version": 5, "match_id": match_id, "events": actions})
                 print(f"Saved match {match_id}: {len(actions)} events")
             else:
                 print(f"Using cached match {match_id}")
