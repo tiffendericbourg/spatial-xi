@@ -36,3 +36,5 @@ footer{border-top:1px solid #e4eaed;padding:24px 3px 32px;color:#82929d;font-siz
 
 /* Dedicated goalkeeper page */
 .topbar nav button{border:0;border-bottom:2px solid transparent;height:100%;background:transparent;color:#546578;font-size:13px;padding:0;cursor:pointer}.topbar nav button.nav-active,.topbar nav button:hover{border-bottom-color:#09643f;color:#09643f;font-weight:700}.keeper-section{margin-bottom:24px}
+
+.keeper-coverage{display:flex;gap:18px;align-items:center;padding:18px 0;color:#63798b;font-size:12px}.keeper-coverage strong{font:700 28px 'Space Grotesk',sans-serif;color:#176e4c}@media(max-width:700px){.keeper-coverage{flex-direction:column;align-items:flex-start}}
