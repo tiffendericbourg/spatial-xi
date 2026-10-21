@@ -92,9 +92,32 @@ function Pitch({ events, selectedId, onSelect }) {
   </svg>
 }
 
+function SpatialKeeperMap({ shots, activeId, onSelect }) {
+  const selected=shots.find(s=>s.id===activeId)||shots.find(s=>Array.isArray(s.keeper_xy))
+  return <div className="keeper-map-layout">
+    <svg viewBox="0 0 1200 800" className="pitch" role="img" aria-label="Shot locations and goalkeeper positioning">
+      <rect width="1200" height="800" fill="#e6f3e1"/>{pitchLines}
+      {shots.map(s=><g key={s.id} className="pitch-action" role="button" tabIndex="0" onClick={()=>onSelect(s.id)} onKeyDown={e=>{if(e.key==='Enter')onSelect(s.id)}}>
+        <circle cx={s.x*10} cy={s.y*10} r={s.id===selected?.id?10:6} fill={s.outcome==='Goal'?'#df5663':'#276f98'} stroke="white" strokeWidth="2"/>
+        <title>{s.player} · {s.minute}' · {s.outcome}</title>
+      </g>)}
+      {selected&&<g>
+        <line x1={selected.x*10} y1={selected.y*10} x2="1200" y2="400" stroke="#e2a747" strokeWidth="3" strokeDasharray="11 7"/>
+        {(selected.defender_xy||[]).map((pt,i)=><circle key={i} cx={pt[0]*10} cy={pt[1]*10} r="9" fill="#7a97b6" stroke="white" strokeWidth="2"/>)}
+        {selected.keeper_xy&&<circle cx={selected.keeper_xy[0]*10} cy={selected.keeper_xy[1]*10} r="14" fill="#195d47" stroke="#fff" strokeWidth="4"/>}
+        <circle cx={selected.x*10} cy={selected.y*10} r="9" fill="#df5663" stroke="white" strokeWidth="3"/>
+      </g>}
+    </svg>
+    <div className="keeper-map-caption">{selected?<>Selected shot · {selected.minute}' · {selected.outcome || 'Unknown outcome'}
+      {selected.keeper_xy?<span>Keeper: {selected.keeper_xy.map(n=>n.toFixed(1)).join(', ')} · {(selected.defender_xy||[]).length} visible outfield defenders</span>:<span>No 360 goalkeeper location for this shot</span>}
+    </>: 'No shots available'}</div>
+  </div>
+}
+
 function KeeperAnalysis({ events, current }) {
   const [keeperTeam,setKeeperTeam]=useState('')
   const [keeperName,setKeeperName]=useState('')
+  const [selectedShot,setSelectedShot]=useState(null)
   const teamNames=[current?.home,current?.away].filter(Boolean)
   const activeTeam=teamNames.includes(keeperTeam)?keeperTeam:teamNames[0]
   const keeperActions=events.filter(e=>e.type==='Goal Keeper'&&e.team===activeTeam)
@@ -106,10 +129,23 @@ function KeeperAnalysis({ events, current }) {
   const corners=events.filter(e=>e.type==='Pass'&&e.team!==activeTeam&&e.is_corner)
   const box6=gkEvents.filter(e=>valid(e.x,e.y)&&e.x<=6.5&&e.y>=30&&e.y<=50)
   const cornerResponses=box6.filter(e=>corners.some(c=>c.period===e.period&&Math.abs((c.minute*60+(c.second||0))-(e.minute*60+(e.second||0)))<=12))
+  const observed=shots.filter(s=>Array.isArray(s.keeper_xy))
+  const positioning=observed.map(s=>{
+    const [kx,ky]=s.keeper_xy
+    const expectedY=s.y+(40-s.y)*(kx-s.x)/(120-s.x)
+    return {...s,offLine:Math.abs((ky-expectedY)*68/80),lineDistance:(120-kx)*105/120}
+  }).filter(s=>Number.isFinite(s.offLine)&&Number.isFinite(s.lineDistance))
+  const avg=(array,key)=>array.length?array.reduce((sum,e)=>sum+e[key],0)/array.length:null
   return <section className="keeper-section panel" id="goalkeepers">
     <div className="forward-title"><div><span className="small-heading">GOALKEEPER STUDY</span><h2>Shot origins & six-yard box</h2><p>Exploratory match-level analysis. Shot sides refer to the attacker's pitch side, not the keeper's left/right hand.</p></div></div>
     <div className="keeper-controls"><label>Defending team<select value={activeTeam||''} onChange={e=>{setKeeperTeam(e.target.value);setKeeperName('')}}>{teamNames.map(n=><option key={n}>{n}</option>)}</select></label><label>Goalkeeper<select value={activeKeeper||''} onChange={e=>setKeeperName(e.target.value)}>{keeperNames.length?keeperNames.map(n=><option key={n}>{n}</option>):<option value="">No keeper actions</option>}</select></label></div>
     <div className="keeper-metrics"><div><small>Opponent shots (open play)</small><strong>{shots.length}</strong></div><div><small>Keeper actions recorded</small><strong>{gkEvents.length}</strong></div><div><small>Actions in six-yard box</small><strong>{box6.length}</strong></div><div><small>Near corner delivery (±12 s)</small><strong>{cornerResponses.length}</strong></div></div>
+    <div className="keeper-spatial">
+      <div className="forward-title"><div><span className="small-heading">SPATIAL 360</span><h2>Positioning at shot time</h2><p>Observed keeper and outfield defenders at the moment of the shot, when available.</p></div></div>
+      <div className="keeper-metrics"><div><small>Shots with keeper coordinates</small><strong>{observed.length} / {shots.length}</strong></div><div><small>Average lateral offset from centre-goal ray</small><strong>{avg(positioning,'offLine')?.toFixed(1)??'—'} m</strong></div><div><small>Average distance from goal line</small><strong>{avg(positioning,'lineDistance')?.toFixed(1)??'—'} m</strong></div></div>
+      <SpatialKeeperMap shots={shots} activeId={selectedShot} onSelect={setSelectedShot}/>
+      <p className="forward-note">Green marker: observed goalkeeper. Blue markers: visible defending outfield players. Dashed line: shot-to-goal-centre reference, not a measured shot trajectory. Lateral offset describes positioning, not a save-quality score. StatsBomb 360 covers only visible players, and some shots have no snapshot.</p>
+    </div>
     <div className="keeper-zones">{zones.map(zone=>{const items=shots.filter(zone.check);const goals=items.filter(e=>e.outcome==='Goal').length;return <div key={zone.name}><span>{zone.name}</span><strong>{items.length} shots</strong><small>{goals} goals · {items.length?Math.round(goals/items.length*100):0}% goal rate</small><div className="keeper-meter"><i style={{width:shots.length?Math.round(items.length/shots.length*100)+'%':'0%'}}/></div></div>})}</div>
     <p className="forward-note">Six-yard box uses the standardized defensive coordinates (first 6.5 m, central 20 m). Corner proximity is inferred by timing, not proven causality. Shot outcomes describe the defending team's performance, not necessarily this individual goalkeeper. Goal rates need larger samples to identify a reliable weakness.</p>
   </section>
