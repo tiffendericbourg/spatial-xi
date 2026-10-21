@@ -11,6 +11,13 @@ const completedPass = e => e.type === 'Pass' && e.outcome === 'Complete'
 const forwardGain = e => completedPass(e) && valid(e.x, e.y) && valid(e.end_x, e.end_y)
   ? Math.max(0, (e.end_x - e.x) * 105 / 120) : 0
 const isForwardPass = e => forwardGain(e) > 0
+const efficiency = e => {
+  const gain=forwardGain(e)
+  if(!gain)return 0
+  if(Number.isFinite(e.bypassed))return gain*(1+.4*e.bypassed)
+  const lateral=Math.abs(e.end_y-e.y)*68/80
+  return gain*(.6+.4*gain/Math.max(1,Math.hypot(gain,lateral)))
+}
 const pitchLines = <g fill="none" stroke="#fff" strokeWidth="3"><rect x="24" y="24" width="1152" height="752"/><path d="M600 24V776"/><circle cx="600" cy="400" r="92"/><rect x="24" y="205" width="175" height="390"/><rect x="1001" y="205" width="175" height="390"/><rect x="24" y="302" width="61" height="196"/><rect x="1115" y="302" width="61" height="196"/></g>
 
 function HeatPitch({ events }) {
@@ -102,6 +109,7 @@ function Metric({ label, left, right, leftName, rightName }) {
 
 export default function App(){
   const [matches,setMatches]=useState([])
+  const [year,setYear]=useState('2018')
   const [matchId,setMatchId]=useState('')
   const [events,setEvents]=useState([])
   const [country,setCountry]=useState('All countries')
@@ -117,7 +125,7 @@ export default function App(){
   useEffect(()=>{
     let live=true
     fetch(dataUrl('matches.json')).then(r=>{if(!r.ok)throw Error();return r.json()})
-      .then(data=>{if(live){setMatches(data);const final=data.find(m=>m.home==='France' && m.away==='Croatia');if(data.length)setMatchId(String((final||data[0]).id))}})
+      .then(data=>{if(live){setMatches(data);const final=data.find(m=>(m.year||2018)===2018&&m.home==='France'&&m.away==='Croatia');if(data.length)setMatchId(String((final||data.find(m=>(m.year||2018)===2018)||data[0]).id))}})
       .catch(()=>{if(live)setError('Match catalogue unavailable. Check the data update workflow.')})
     return()=>{live=false}
   },[])
@@ -131,13 +139,14 @@ export default function App(){
   },[matchId])
 
   const current=matches.find(m=>String(m.id)===matchId)
-  const countries=[...new Set(matches.flatMap(m=>[m.home,m.away]))].sort()
-  const fixtures=matches.filter(m=>country==='All countries'||m.home===country||m.away===country)
+  const countries=[...new Set(matches.filter(m=>String(m.year||2018)===year).flatMap(m=>[m.home,m.away]))].sort()
+  const yearMatches=matches.filter(m=>String(m.year||2018)===year)
+  const fixtures=yearMatches.filter(m=>country==='All countries'||m.home===country||m.away===country)
   const teams=[...new Set(events.map(e=>e.team).filter(Boolean))]
   const players=[...new Set(events.filter(e=>team==='All teams'||e.team===team).map(e=>e.player).filter(Boolean))].sort()
   const byPeriod=useMemo(()=>events.filter(e=>period==='Full match'||String(e.period)===period),[events,period])
-  const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||(mode==='Forward'&&isForwardPass(e))||e.type===mode)),[byPeriod,team,player,mode])
-  const displayEvents=useMemo(()=>filtered.map(e=>({...e,_forward:mode==='Forward',_color:mode==='Forward'?'#11855b':e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current,mode])
+  const filtered=useMemo(()=>byPeriod.filter(e=>(team==='All teams'||e.team===team)&&(player==='All players'||e.player===player)&&(mode==='All events'||mode==='Network'||mode==='Heatmap'||(mode==='Forward'&&isForwardPass(e))||(mode==='Efficiency'&&efficiency(e)>0)||e.type===mode)),[byPeriod,team,player,mode])
+  const displayEvents=useMemo(()=>filtered.map(e=>({...e,_forward:mode==='Forward'||mode==='Efficiency',_color:mode==='Efficiency'?'#b66d18':mode==='Forward'?'#11855b':e.type==='Shot'?'#f26f7d':(current && e.team===current.away?'#f26f7d':'#174b83')})),[filtered,current,mode])
   const selected=filtered.find(e=>e.id===selectedId)
   const passesForMetrics=filtered.filter(e=>e.type==='Pass' && distance(e)!==null)
   const passDistances=passesForMetrics.map(e=>({...e,meters:distance(e)}))
@@ -154,6 +163,14 @@ export default function App(){
     return result
   },{})).sort((a,b)=>b.gain-a.gain)
   const forwardTotal=filtered.filter(isForwardPass).reduce((sum,e)=>sum+forwardGain(e),0)
+  const efficiencyRanking=Object.values(byPeriod.filter(e=>(team==='All teams'||e.team===team)&&efficiency(e)>0).reduce((acc,e)=>{
+    if(!e.player)return acc
+    const key=e.team+'::'+e.player
+    if(!acc[key])acc[key]={team:e.team,player:e.player,score:0,passes:0,bypassed:0,observed:0}
+    acc[key].score+=efficiency(e);acc[key].passes++
+    if(Number.isFinite(e.bypassed)){acc[key].bypassed+=e.bypassed;acc[key].observed++}
+    return acc
+  },{})).sort((a,b)=>b.score-a.score)
   const chartEvents=mode==='Network'?filtered.filter(e=>e.type==='Pass'):filtered
   const networkTeam=team==='All teams'?(current?.home||''):team
   const networkEvents=chartEvents.filter(e=>e.team===networkTeam)
@@ -172,19 +189,20 @@ export default function App(){
   const homePasses=byPeriod.filter(e=>e.team===current?.home&&e.type==='Pass')
   const awayPasses=byPeriod.filter(e=>e.team===current?.away&&e.type==='Pass')
   const keyPasses=byPeriod.filter(e=>e.type==='Shot')
-  const changeCountry=value=>{setCountry(value);const first=matches.find(m=>value==='All countries'||m.home===value||m.away===value);if(first)setMatchId(String(first.id))}
-  const modes=[['Pass','Passes'],['Forward','Forward passes'],['Shot','Shots'],['Carry','Carries'],['Dribble','Dribbles'],['Ball Receipt*','Ball receipts'],['All events','All actions'],['Network','Pass network'],['Heatmap','Heat map']]
+  const changeCountry=value=>{setCountry(value);const first=yearMatches.find(m=>value==='All countries'||m.home===value||m.away===value);if(first)setMatchId(String(first.id))}
+  const changeYear=value=>{setYear(value);setCountry('All countries');const first=matches.find(m=>String(m.year||2018)===value);if(first)setMatchId(String(first.id))}
+  const modes=[['Pass','Passes'],['Forward','Forward passes'],['Efficiency','Pass efficiency'],['Shot','Shots'],['Carry','Carries'],['Dribble','Dribbles'],['Ball Receipt*','Ball receipts'],['All events','All actions'],['Network','Pass network'],['Heatmap','Heat map']]
 
   return <div className="site" id="home">
-    <header className="topbar"><nav aria-label="Main navigation"><a href="#explorer" className="nav-active">Matches</a><a href="#team-insights">Teams</a><a href="#player-filter">Players</a><a href="#about">About</a></nav><span className="competition-label">World Cup 2018 <span>⌄</span></span></header>
+    <header className="topbar"><nav aria-label="Main navigation"><a href="#explorer" className="nav-active">Matches</a><a href="#team-insights">Teams</a><a href="#player-filter">Players</a><a href="#about">About</a></nav><span className="competition-label">World Cup {year} <span>⌄</span></span></header>
     <main className="dashboard" id="explorer">
-      <section className="fixture-bar" aria-label="Match selection">
+      <section className="fixture-bar" aria-label="Match selection"><div className="fixture-select"><label htmlFor="tournament">Tournament</label><select id="tournament" value={year} onChange={e=>changeYear(e.target.value)}><option value="2018">World Cup 2018</option><option value="2022" disabled={!matches.some(m=>m.year===2022)}>World Cup 2022</option></select></div>
         <div className="fixture-select"><label htmlFor="country">Country</label><select id="country" value={country} onChange={e=>changeCountry(e.target.value)}><option>All countries</option>{countries.map(c=><option key={c}>{c}</option>)}</select></div>
         <div className="fixture-centre"><div className="fixture-score">{current && Number.isFinite(current.home_score)&&Number.isFinite(current.away_score)?`${current.home_score} - ${current.away_score}`:'vs'}</div><div className="fixture-date">{current?.date||'Choose a match'}</div></div>
         <div className="fixture-select"><label htmlFor="fixture">Match</label><select id="fixture" value={matchId} onChange={e=>setMatchId(e.target.value)} disabled={!matches.length}>{!matches.length&&<option>Loading matches…</option>}{fixtures.map(m=><option key={m.id} value={m.id}>{m.home} vs {m.away}</option>)}</select></div>
       </section>
       <div className="dashboard-grid">
-        <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Forward'?'⇢':value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
+        <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Efficiency'?'✦':value==='Forward'?'⇢':value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
         </aside>
         <section className="visual panel"><div className="visual-head"><div><span className="small-heading">MATCH MAP</span><p>{current?`${current.home} / ${current.away}`:'Match events'}</p></div><span className="visual-counter">{number(filtered.length)} {mode==='Forward'?'forward passes':'events'}</span></div>
           <div className="pitch-filters" aria-label="Pitch filters">
@@ -194,8 +212,8 @@ export default function App(){
           <label className="pitch-check"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> Show all filtered events</label>
           </div>
           {error?<div className="error">{error} <a href="https://github.com/tiffendericbourg/spatial-xi/actions/workflows/update-data.yml">Update data ↗</a></div>:mode==='Heatmap'?<HeatPitch events={filtered}/>:mode==='Network'?<NetworkPitch events={networkEvents} onPlayer={handleNetworkPlayer}/>:<Pitch events={showAll?displayEvents:displayEvents.slice(0,400)} selectedId={selectedId} onSelect={setSelectedId}/>}
-          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">{mode==='Network'?'Select a player · choose a team for its network':mode==='Heatmap'?'Darker areas = more actions':mode==='Forward'?'Green arrows · thicker = greater territory gained':'Select a point for details'}</span></div>
-          <div className="event-strip">{selected?<><strong>{selected.player||'Unknown player'}</strong><span>{selected.team} · {selected.type} · {selected.minute}' · {selected.outcome||'No outcome recorded'}</span>{Number.isFinite(selected.xg)&&<span>xG {selected.xg.toFixed(3)}</span>}{selected.type==='Pass'&&<span>{mode==='Forward'?`Ground gained ${formatMeters(forwardGain(selected))} · `:''}Distance {formatMeters(distance(selected))}{selected.recipient?` · To ${selected.recipient}`:''}</span>}</>:<span>Explore passes, shots and their recorded locations on the pitch.</span>}</div>
+          <div className="pitch-legend"><span><i style={{background:'#174b83'}}/> {current?.home||'Home'}</span><span><i style={{background:'#f26f7d'}}/> {current?.away||'Away'}</span><span className="legend-hint">{mode==='Network'?'Select a player · choose a team for its network':mode==='Heatmap'?'Darker areas = more actions':mode==='Efficiency'?'Amber arrows · thicker = higher efficiency':mode==='Forward'?'Green arrows · thicker = greater territory gained':'Select a point for details'}</span></div>
+          <div className="event-strip">{selected?<><strong>{selected.player||'Unknown player'}</strong><span>{selected.team} · {selected.type} · {selected.minute}' · {selected.outcome||'No outcome recorded'}</span>{Number.isFinite(selected.xg)&&<span>xG {selected.xg.toFixed(3)}</span>}{selected.type==='Pass'&&<span>{mode==='Forward'?`Ground gained ${formatMeters(forwardGain(selected))} · `:''}Distance {formatMeters(distance(selected))}{selected.recipient?` · To ${selected.recipient}`:''}{efficiency(selected)>0?` · PEI ${efficiency(selected).toFixed(1)}${Number.isFinite(selected.bypassed)?` · ${selected.bypassed} visible opponents bypassed`:' · estimated'}`:''}</span>}</>:<span>Explore passes, shots and their recorded locations on the pitch.</span>}</div>
         </section>
         <aside className="insights panel" id="team-insights"><div className="insight-tabs">{['Summary','Events'].map(v=><button className={insightTab===v?'active':''} key={v} onClick={()=>setInsightTab(v)}>{v}</button>)}</div>
           {insightTab==='Summary'?<><div className="team-key"><span><i className="home-dot"/> {current?.home||'Home'}</span><span><i className="away-dot"/> {current?.away||'Away'}</span></div>
@@ -230,6 +248,13 @@ export default function App(){
           {!forwardRanking.length&&<p className="forward-empty">No completed forward passes for these filters.</p>}
         </div>
         <p className="forward-note">Direction follows StatsBomb's standardised attacking coordinates. Lateral distance is excluded from territory gained. Choose a row to highlight that player's passes on the pitch.</p>
+      </section>
+      <section className="forward-section panel" aria-label="Pass efficiency leaderboard">
+        <div className="forward-title"><div><span className="small-heading">CUSTOM SPATIAL METRIC</span><h2>Pass Efficiency Index</h2><p>{year==='2018'?'2018 · estimated from forward metres and direction.':'2022 · observed opponent positions when StatsBomb 360 is available; estimated otherwise.'}</p></div><button className="forward-open" onClick={()=>{setMode('Efficiency');setSelectedId(null);document.getElementById('explorer')?.scrollIntoView({behavior:'smooth'})}}>View on pitch ↗</button></div>
+        <div className="forward-table">{efficiencyRanking.slice(0,10).map((entry,i)=><button key={entry.team+entry.player} onClick={()=>{setTeam(entry.team);setPlayer(entry.player);setMode('Efficiency');setSelectedId(null);document.getElementById('explorer')?.scrollIntoView({behavior:'smooth'})}}>
+          <span className="forward-rank">{String(i+1).padStart(2,'0')}</span><span className="forward-person"><b>{entry.player}</b><small>{entry.team} · {entry.passes} passes · {entry.observed?entry.bypassed+' bypassed on '+entry.observed+' observed passes':'estimated'}</small></span><span className="forward-track"><i style={{width:`${100*entry.score/efficiencyRanking[0].score}%`}}/></span><strong>{entry.score.toFixed(1)}</strong>
+        </button>)}{!efficiencyRanking.length&&<p className="forward-empty">No eligible passes for this selection.</p>}</div>
+        <p className="forward-note">PEI: forward metres × (1 + 0.4 × opponents bypassed) when 360 positions are available. Without 360: forward metres adjusted by pass directness. Experimental indicator; mixed observation coverage can affect comparisons.</p>
       </section>
       <section className="detail-cards" aria-label="Match breakdown">
         <article className="small-card panel"><MiniPitch events={homePasses} color="#174b83"/><div><span>HOME TEAM</span><h3>{current?.home||'Home'} passes</h3><strong>{number(stats.home.passes)}</strong></div></article>
