@@ -82,6 +82,17 @@ def convert_event(event, freeze=None):
         action["shot_type"] = details.get("type", {}).get("name")
         action["outcome"] = details.get("outcome", {}).get("name")
         action["xg"] = details.get("statsbomb_xg")
+        if freeze is not None:
+            # For shot frames, the goalkeeper is an opponent of the shooter.
+            keepers = [player.get("location") for player in freeze
+                       if player.get("keeper") is True and player.get("teammate") is False
+                       and isinstance(player.get("location"), list)]
+            if keepers:
+                action["keeper_xy"] = keepers[0][:2]
+            defenders = [player.get("location")[:2] for player in freeze
+                         if player.get("teammate") is False and player.get("keeper") is not True
+                         and isinstance(player.get("location"), list)]
+            action["defender_xy"] = defenders
     else:
         action["outcome"] = details.get("outcome", {}).get("name")
     return action
@@ -90,7 +101,7 @@ def convert_event(event, freeze=None):
 def has_current_schema(path):
     try:
         with path.open(encoding="utf-8") as file:
-            return json.load(file).get("schema_version") == 5
+            return json.load(file).get("schema_version") == 6
     except (OSError, ValueError):
         return False
 
@@ -120,7 +131,7 @@ def main():
                 actions = [item for event in events if (item := convert_event(event, freeze_frames.get(event["id"]))) is not None]
                 if not actions:
                     raise ValueError("No passes or shots returned")
-                save_json(output, {"schema_version": 5, "match_id": match_id, "events": actions})
+                save_json(output, {"schema_version": 6, "match_id": match_id, "events": actions})
                 print(f"Saved match {match_id}: {len(actions)} events")
             else:
                 print(f"Using cached match {match_id}")
