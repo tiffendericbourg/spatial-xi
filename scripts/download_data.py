@@ -26,7 +26,26 @@ def save_json(path, data):
     os.replace(temp_path, path)
 
 
-def convert_event(event):
+def count_bypassed(event, visible):
+    """Visible opponents in the forward corridor of a completed pass."""
+    start = event.get("location")
+    end = event.get("pass", {}).get("end_location")
+    if not start or not end or end[0] <= start[0]:
+        return 0
+    count = 0
+    for item in visible:
+        if item.get("teammate") is not False:
+            continue
+        point = item.get("location")
+        if not point or not (start[0] < point[0] < end[0]):
+            continue
+        t = (point[0] - start[0]) / (end[0] - start[0])
+        if abs(point[1] - (start[1] + t * (end[1] - start[1]))) <= 12:
+            count += 1
+    return count
+
+
+def convert_event(event, freeze=None):
     event_type = event.get("type", {}).get("name")
     if event_type not in ("Pass", "Shot", "Carry", "Dribble", "Ball Receipt*"):
         return None
@@ -52,6 +71,8 @@ def convert_event(event):
     if event_type == "Pass":
         action["outcome"] = details.get("outcome", {}).get("name", "Complete")
         action["recipient"] = details.get("recipient", {}).get("name")
+        if freeze is not None and action["outcome"] == "Complete":
+            action["bypassed"] = count_bypassed(event, freeze)
     elif event_type == "Shot":
         action["outcome"] = details.get("outcome", {}).get("name")
         action["xg"] = details.get("statsbomb_xg")
@@ -63,28 +84,37 @@ def convert_event(event):
 def has_current_schema(path):
     try:
         with path.open(encoding="utf-8") as file:
-            return json.load(file).get("schema_version") == 2
+            return json.load(file).get("schema_version") == 3
     except (OSError, ValueError):
         return False
 
 
 def main():
     # Start with a known, freely available competition: men's 2018 World Cup.
-    matches = download_json("matches/43/3.json")
-    selected = sorted(matches, key=lambda match: (match["match_date"], match["match_id"]), reverse=True)
+    selected = []
+    for season, year in ((3, 2018), (106, 2022)):
+        selected += [(match, year) for match in download_json(f"matches/43/{season}.json")]
+    selected.sort(key=lambda item: (item[0]["match_date"], item[0]["match_id"]), reverse=True)
     catalogue = []
 
-    for match in selected:
+    for match, year in selected:
         match_id = match["match_id"]
         output = DATA_DIR / f"{match_id}.json"
         try:
             # Previously downloaded matches do not need another network request.
             if not output.exists() or not has_current_schema(output):
                 events = download_json(f"events/{match_id}.json")
-                actions = [item for event in events if (item := convert_event(event)) is not None]
+                freeze_frames = {}
+                if year == 2022:
+                    try:
+                        frames = download_json(f"three-sixty/{match_id}.json")
+                        freeze_frames = {frame["event_uuid"]: frame.get("freeze_frame", []) for frame in frames}
+                    except (OSError, ValueError):
+                        print(f"No 360 for {match_id}, using estimated efficiency")
+                actions = [item for event in events if (item := convert_event(event, freeze_frames.get(event["id"]))) is not None]
                 if not actions:
                     raise ValueError("No passes or shots returned")
-                save_json(output, {"schema_version": 2, "match_id": match_id, "events": actions})
+                save_json(output, {"schema_version": 3, "match_id": match_id, "events": actions})
                 print(f"Saved match {match_id}: {len(actions)} events")
             else:
                 print(f"Using cached match {match_id}")
@@ -97,7 +127,8 @@ def main():
         catalogue.append({
             "id": match_id,
             "date": match["match_date"],
-            "competition": "FIFA World Cup 2018",
+            "competition": f"FIFA World Cup {year}",
+            "year": year,
             "home": match["home_team"]["home_team_name"],
             "away": match["away_team"]["away_team_name"],
             "home_score": match.get("home_score"),
