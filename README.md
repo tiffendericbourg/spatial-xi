@@ -25,7 +25,7 @@ StatsBomb Open Data: https://github.com/statsbomb/open-data — comply with its 
 The **Matches** page offers match selection, passing and shot maps, player/period filters, recorded xG and a custom pass-efficiency index.
 
 The separate **Goalkeepers** page offers:
-- Observed goalkeeper event locations (2018 and 2022), mirrored into the shot map's attacking direction.
+- Observed goalkeeper event locations (2018 and 2022), rotated 180° into the opposition shot map's attacking direction.
 - Open-play shot origins by attacking left/centre/right channel, with goals and xG (team-level, **not** proof of an individual goalkeeper weakness).
 - Goalkeeper depth and alignment with the shot-to-goal ray, plus nearest *visible* defender, when 2022 StatsBomb 360 shots have the required coordinates.
 - Positions at opposing corner deliveries, when the goalkeeper is visible in 360.
