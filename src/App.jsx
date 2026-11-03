@@ -93,11 +93,11 @@ function Pitch({ events, selectedId, onSelect }) {
 }
 
 function SpatialKeeperMap({ shots, activeId, onSelect }) {
-  const selected=shots.find(s=>s.id===activeId)||shots.find(s=>Array.isArray(s.keeper_xy))
+  const selected=shots.find(s=>s.id===activeId)||shots.find(s=>Array.isArray(s.keeper_xy))||shots[0]
   return <div className="keeper-map-layout">
     <svg viewBox="0 0 1200 800" className="pitch" role="img" aria-label="Shot locations and goalkeeper positioning">
       <rect width="1200" height="800" fill="#e6f3e1"/>{pitchLines}
-      {shots.map(s=><g key={s.id} className="pitch-action" role="button" tabIndex="0" onClick={()=>onSelect(s.id)} onKeyDown={e=>{if(e.key==='Enter')onSelect(s.id)}}>
+      {shots.map(s=><g key={s.id} className="pitch-action" role="button" tabIndex="0" onClick={()=>onSelect(s.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(s.id)}}}>
         <circle cx={s.x*10} cy={s.y*10} r={s.id===selected?.id?10:6} fill={s.outcome==='Goal'?'#df5663':'#276f98'} stroke="white" strokeWidth="2"/>
         <title>{s.player} · {s.minute}' · {s.outcome}</title>
       </g>)}
@@ -111,6 +111,27 @@ function SpatialKeeperMap({ shots, activeId, onSelect }) {
     <div className="keeper-map-caption">{selected?<>Selected shot · {selected.minute}' · {selected.outcome || 'Unknown outcome'}
       {selected.keeper_xy?<span>Keeper: {selected.keeper_xy.map(n=>n.toFixed(1)).join(', ')} · {(selected.defender_xy||[]).length} visible outfield defenders</span>:<span>No 360 goalkeeper location for this shot</span>}
     </>: 'No shots available'}</div>
+  </div>
+}
+
+
+function GoalkeeperActionsMap({ actions }) {
+  // Goalkeeper event locations use x=0 as the goal they defend.
+  // Mirror x to compare with opposition shot coordinates (goal at x=120).
+  return <div className="keeper-action-layout">
+    <svg viewBox="650 140 550 520" className="pitch" role="img" aria-label="Goalkeeper event locations, mirrored to the defending goal on the right">
+      <rect width="1200" height="800" fill="#e6f3e1"/>{pitchLines}
+      <rect x="1135" y="300" width="65" height="200" fill="#11865e" opacity=".16"/>
+      {actions.filter(e=>valid(e.x,e.y)).map(e=>{
+        const aerial=e.outcome==='Punch'||e.outcome==='Collected'
+        const shot=['Shot Saved','Shot Faced','Goal Conceded','Penalty Saved'].includes(e.outcome)
+        return <circle key={e.id} cx={(120-e.x)*10} cy={e.y*10} r="8" stroke="#fff" strokeWidth="2"
+          fill={aerial?'#177c58':shot?'#2c7ba1':'#d09b4e'}>
+          <title>{e.minute}' · {e.outcome||'Goalkeeper action'}</title>
+        </circle>
+      })}
+    </svg>
+    <div className="keeper-map-key"><span><i style={{background:'#2c7ba1'}}/> Shot-related</span><span><i style={{background:'#177c58'}}/> Punch / collected</span><span><i style={{background:'#d09b4e'}}/> Other</span></div>
   </div>
 }
 
