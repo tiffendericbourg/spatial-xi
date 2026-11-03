@@ -138,24 +138,29 @@ function GoalkeeperActionsMap({ actions }) {
 function KeeperAnalysis({ events, current }) {
   const [keeperTeam,setKeeperTeam]=useState('')
   const [keeperName,setKeeperName]=useState('')
+  const [keeperPeriod,setKeeperPeriod]=useState('Full match')
   const [selectedShot,setSelectedShot]=useState(null)
   const teamNames=[current?.home,current?.away].filter(Boolean)
   const activeTeam=teamNames.includes(keeperTeam)?keeperTeam:teamNames[0]
-  const keeperActions=events.filter(e=>e.type==='Goal Keeper'&&e.team===activeTeam)
-  const keeperNames=[...new Set(keeperActions.map(e=>e.player).filter(Boolean))]
+  const matchEvents=keeperPeriod==='Full match'?events:events.filter(e=>String(e.period)===keeperPeriod)
+  const keeperActions=matchEvents.filter(e=>e.type==='Goal Keeper'&&e.team===activeTeam)
+  const keeperNames=[...new Set(events.filter(e=>e.type==='Goal Keeper'&&e.team===activeTeam).map(e=>e.player).filter(Boolean))]
   const activeKeeper=keeperNames.includes(keeperName)?keeperName:keeperNames[0]
   const gkEvents=keeperActions.filter(e=>e.player===activeKeeper)
-  const shots=events.filter(e=>e.type==='Shot'&&e.team!==activeTeam&&e.shot_type!=='Penalty'&&e.shot_type!=='Free Kick'&&valid(e.x,e.y))
+  const shots=matchEvents.filter(e=>e.type==='Shot'&&e.team&&e.team!==activeTeam&&e.shot_type==='Open Play'&&valid(e.x,e.y))
   const zones=[{name:'Left flank',check:e=>e.y<80/3},{name:'Centre',check:e=>e.y>=80/3&&e.y<=160/3},{name:'Right flank',check:e=>e.y>160/3}]
-  const corners=events.filter(e=>e.type==='Pass'&&e.team!==activeTeam&&e.is_corner)
-  const box6=gkEvents.filter(e=>valid(e.x,e.y)&&e.x<=6.5&&e.y>=30&&e.y<=50)
-  const cornerResponses=box6.filter(e=>corners.some(c=>c.period===e.period&&Math.abs((c.minute*60+(c.second||0))-(e.minute*60+(e.second||0)))<=12))
-  const observed=shots.filter(s=>Array.isArray(s.keeper_xy))
+  const corners=matchEvents.filter(e=>e.type==='Pass'&&e.team&&e.team!==activeTeam&&e.is_corner)
+  const box6=gkEvents.filter(e=>valid(e.x,e.y)&&e.x>=0&&e.x<=6.5&&e.y>=30&&e.y<=50)
+  const cornerResponses=box6.filter(e=>corners.some(c=>{
+    const seconds=(e.minute-c.minute)*60+(e.second||0)-(c.second||0)
+    return c.period===e.period&&seconds>=0&&seconds<=15
+  }))
+  const observed=shots.filter(s=>Array.isArray(s.keeper_xy)&&valid(s.keeper_xy[0],s.keeper_xy[1]))
   const positioning=observed.map(s=>{
     const [kx,ky]=s.keeper_xy
     const expectedY=s.y+(40-s.y)*(kx-s.x)/(120-s.x)
     return {...s,offLine:Math.abs((ky-expectedY)*68/80),lineDistance:(120-kx)*105/120}
-  }).filter(s=>Number.isFinite(s.offLine)&&Number.isFinite(s.lineDistance))
+  }).filter(s=>Number.isFinite(s.offLine)&&Number.isFinite(s.lineDistance)&&s.lineDistance>=0&&s.lineDistance<=105)
   const avg=(array,key)=>array.length?array.reduce((sum,e)=>sum+e[key],0)/array.length:null
   const coverage=observed.map(s=>{
     const toAngle=targetY=>Math.atan2((targetY-s.y)*68/80,(120-s.x)*105/120)
@@ -167,12 +172,27 @@ function KeeperAnalysis({ events, current }) {
     const overlap=Math.max(0,Math.min(Math.max(left,right),keeperAngle+half)-Math.max(Math.min(left,right),keeperAngle-half))
     return {...s,coverage:100*overlap/Math.abs(right-left)}
   }).filter(s=>Number.isFinite(s.coverage))
-  const observedCorners=corners.filter(e=>Array.isArray(e.corner_keeper_xy))
+  const observedCorners=corners.filter(e=>Array.isArray(e.corner_keeper_xy)&&valid(e.corner_keeper_xy[0],e.corner_keeper_xy[1]))
   const keeperInSix=observedCorners.filter(e=>e.corner_keeper_xy[0]>=113.5&&e.corner_keeper_xy[1]>=30&&e.corner_keeper_xy[1]<=50).length
+  const teamGoals=shots.filter(e=>e.outcome==='Goal').length
+  const teamXg=shots.filter(e=>Number.isFinite(e.xg)).reduce((sum,e)=>sum+e.xg,0)
+  const keeperDepth=gkEvents.filter(e=>valid(e.x,e.y))
+  const avgDepth=keeperDepth.length?keeperDepth.reduce((sum,e)=>sum+e.x*105/120,0)/keeperDepth.length:null
+  const defendedShots=observed.filter(s=>Array.isArray(s.defender_xy)&&s.defender_xy.some(p=>valid(p[0],p[1])))
+  const nearestDefender=defendedShots.length?defendedShots.reduce((sum,s)=>{
+    const distances=s.defender_xy.filter(p=>valid(p[0],p[1])).map(p=>Math.hypot((p[0]-s.x)*105/120,(p[1]-s.y)*68/80))
+    return sum+Math.min(...distances)
+  },0)/defendedShots.length:null
   return <section className="keeper-section panel" id="goalkeepers">
     <div className="forward-title"><div><span className="small-heading">GOALKEEPER STUDY</span><h2>Shot origins & six-yard box</h2><p>Exploratory match-level analysis. Shot sides refer to the attacker's pitch side, not the keeper's left/right hand.</p></div></div>
-    <div className="keeper-controls"><label>Defending team<select value={activeTeam||''} onChange={e=>{setKeeperTeam(e.target.value);setKeeperName('')}}>{teamNames.map(n=><option key={n}>{n}</option>)}</select></label><label>Goalkeeper<select value={activeKeeper||''} onChange={e=>setKeeperName(e.target.value)}>{keeperNames.length?keeperNames.map(n=><option key={n}>{n}</option>):<option value="">No keeper actions</option>}</select></label></div>
-    <div className="keeper-metrics"><div><small>Opponent shots (open play)</small><strong>{shots.length}</strong></div><div><small>Keeper actions recorded</small><strong>{gkEvents.length}</strong></div><div><small>Actions in six-yard box</small><strong>{box6.length}</strong></div><div><small>Near corner delivery (±12 s)</small><strong>{cornerResponses.length}</strong></div></div>
+    <div className="keeper-controls"><label>Defending team<select value={activeTeam||''} onChange={e=>{setKeeperTeam(e.target.value);setKeeperName('');setSelectedShot(null)}}>{teamNames.map(n=><option key={n}>{n}</option>)}</select></label><label>Goalkeeper<select value={activeKeeper||''} onChange={e=>setKeeperName(e.target.value)}>{keeperNames.length?keeperNames.map(n=><option key={n}>{n}</option>):<option value="">No keeper actions</option>}</select></label><label>Period<select value={keeperPeriod} onChange={e=>{setKeeperPeriod(e.target.value);setSelectedShot(null)}}><option>Full match</option><option value="1">First half</option><option value="2">Second half</option><option value="3">Extra time 1</option><option value="4">Extra time 2</option></select></label></div>
+    <div className="keeper-metrics"><div><small>Open-play shots faced · team</small><strong>{shots.length}</strong></div><div><small>Goals from these shots · team</small><strong>{teamGoals}</strong></div><div><small>Opponent open-play xG</small><strong>{teamXg.toFixed(2)}</strong></div><div><small>Goalkeeper events · player</small><strong>{gkEvents.length}</strong></div></div>
+    <div className="keeper-spatial">
+      <div className="forward-title"><div><span className="small-heading">POSITIONAL EVENTS · 2018 + 2022</span><h2>Where does the goalkeeper intervene?</h2><p>Recorded goalkeeper action locations, mirrored to show the defended goal on the right.</p></div></div>
+      <div className="keeper-metrics"><div><small>Events inside the six-yard box</small><strong>{box6.length} / {gkEvents.length}</strong></div><div><small>Average event distance from goal line</small><strong>{avgDepth==null?'—':avgDepth.toFixed(1)+' m'}</strong></div><div><small>Events within 15 s after a corner, inside six-yard box</small><strong>{cornerResponses.length}</strong></div></div>
+      {gkEvents.length?<GoalkeeperActionsMap actions={gkEvents}/>:<p className="keeper-empty">No goalkeeper actions recorded in this period.</p>}
+      <p className="forward-note">These are the locations of logged events, not continuous goalkeeper tracking. The green shading shows the six-yard box. Corner proximity is temporal association only, not evidence of a claim.</p>
+    </div>
     <div className="keeper-spatial">
       <div className="forward-title"><div><span className="small-heading">SPATIAL 360</span><h2>Positioning at shot time</h2><p>Observed keeper and outfield defenders at the moment of the shot, when available.</p></div></div>
       <div className="keeper-metrics"><div><small>Shots with keeper coordinates</small><strong>{observed.length} / {shots.length}</strong></div><div><small>Average lateral offset from centre-goal ray</small><strong>{avg(positioning,'offLine')?.toFixed(1)??'—'} m</strong></div><div><small>Average distance from goal line</small><strong>{avg(positioning,'lineDistance')?.toFixed(1)??'—'} m</strong></div></div>
@@ -307,7 +327,7 @@ export default function App(){
         <div className="fixture-centre"><div className="fixture-score">{current && Number.isFinite(current.home_score)&&Number.isFinite(current.away_score)?`${current.home_score} - ${current.away_score}`:'vs'}</div><div className="fixture-date">{current?.date||'Choose a match'}</div></div>
         <div className="fixture-select"><label htmlFor="fixture">Match</label><select id="fixture" value={matchId} onChange={e=>setMatchId(e.target.value)} disabled={!matches.length}>{!matches.length&&<option>Loading matches…</option>}{fixtures.map(m=><option key={m.id} value={m.id}>{m.home} vs {m.away}</option>)}</select></div>
       </section>
-      {page==='keepers' ? <KeeperAnalysis key={matchId} events={byPeriod} current={current}/> : <>
+      {page==='keepers' ? <KeeperAnalysis key={matchId} events={events} current={current}/> : <>
       <div className="dashboard-grid">
         <aside className="sidebar panel"><div className="side-label">Analysis</div><div className="mode-list">{modes.map(([value,label])=><button key={value} className={mode===value?'active':''} onClick={()=>{setMode(value);setSelectedId(null)}}><span className="mode-symbol">{value==='Efficiency'?'✦':value==='Forward'?'⇢':value==='Pass'?'↗':value==='Shot'?'◎':value==='Network'?'◇':value==='Heatmap'?'▦':'◌'}</span>{label}</button>)}</div>
         </aside>
