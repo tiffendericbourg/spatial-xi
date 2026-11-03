@@ -116,16 +116,16 @@ function SpatialKeeperMap({ shots, activeId, onSelect }) {
 
 
 function GoalkeeperActionsMap({ actions }) {
-  // Goalkeeper event locations use x=0 as the goal they defend.
-  // Mirror x to compare with opposition shot coordinates (goal at x=120).
+  // Each team has its own attacking orientation in StatsBomb.
+  // Rotate keeper events 180 degrees to align with opposition shots.
   return <div className="keeper-action-layout">
-    <svg viewBox="650 140 550 520" className="pitch" role="img" aria-label="Goalkeeper event locations, mirrored to the defending goal on the right">
+    <svg viewBox="650 140 550 520" className="pitch" role="img" aria-label="Goalkeeper event locations rotated to the defending goal on the right">
       <rect width="1200" height="800" fill="#e6f3e1"/>{pitchLines}
       <rect x="1135" y="300" width="65" height="200" fill="#11865e" opacity=".16"/>
       {actions.filter(e=>valid(e.x,e.y)).map(e=>{
         const aerial=e.outcome==='Punch'||e.outcome==='Collected'
         const shot=['Shot Saved','Shot Faced','Goal Conceded','Penalty Saved'].includes(e.outcome)
-        return <circle key={e.id} cx={(120-e.x)*10} cy={e.y*10} r="8" stroke="#fff" strokeWidth="2"
+        return <circle key={e.id} cx={(120-e.x)*10} cy={(80-e.y)*10} r="8" stroke="#fff" strokeWidth="2"
           fill={aerial?'#177c58':shot?'#2c7ba1':'#d09b4e'}>
           <title>{e.minute}' · {e.outcome||'Goalkeeper action'}</title>
         </circle>
@@ -178,7 +178,7 @@ function KeeperAnalysis({ events, current }) {
     <div className="keeper-controls"><label>Defending team<select value={activeTeam||''} onChange={e=>{setKeeperTeam(e.target.value);setKeeperName('');setSelectedShot(null)}}>{teamNames.map(n=><option key={n}>{n}</option>)}</select></label><label>Goalkeeper<select value={activeKeeper||''} onChange={e=>setKeeperName(e.target.value)}>{keeperNames.length?keeperNames.map(n=><option key={n}>{n}</option>):<option value="">No keeper actions</option>}</select></label><label>Period<select value={keeperPeriod} onChange={e=>{setKeeperPeriod(e.target.value);setSelectedShot(null)}}><option>Full match</option><option value="1">First half</option><option value="2">Second half</option><option value="3">Extra time 1</option><option value="4">Extra time 2</option></select></label></div>
     <div className="keeper-metrics"><div><small>Open-play shots faced · team</small><strong>{shots.length}</strong></div><div><small>Goals from these shots · team</small><strong>{teamGoals}</strong></div><div><small>Opponent open-play xG</small><strong>{teamXg.toFixed(2)}</strong></div><div><small>Goalkeeper events · player</small><strong>{gkEvents.length}</strong></div></div>
     <div className="keeper-spatial">
-      <div className="forward-title"><div><span className="small-heading">POSITIONAL EVENTS · 2018 + 2022</span><h2>Where does the goalkeeper intervene?</h2><p>Recorded goalkeeper action locations, mirrored to show the defended goal on the right.</p></div></div>
+      <div className="forward-title"><div><span className="small-heading">POSITIONAL EVENTS · 2018 + 2022</span><h2>Where does the goalkeeper intervene?</h2><p>Recorded goalkeeper actions rotated into the same orientation as the opposition shots.</p></div></div>
       <div className="keeper-metrics"><div><small>Events inside the six-yard box</small><strong>{box6.length} / {gkEvents.length}</strong></div><div><small>Average event distance from goal line</small><strong>{avgDepth==null?'—':avgDepth.toFixed(1)+' m'}</strong></div><div><small>Events within 15 s after a corner, inside six-yard box</small><strong>{cornerResponses.length}</strong></div></div>
       {gkEvents.length?<GoalkeeperActionsMap actions={gkEvents}/>:<p className="keeper-empty">No goalkeeper actions recorded in this period.</p>}
       <p className="forward-note">These are the locations of logged events, not continuous goalkeeper tracking. The green shading shows the six-yard box. Corner proximity is temporal association only, not evidence of a claim.</p>
@@ -186,6 +186,7 @@ function KeeperAnalysis({ events, current }) {
     <div className="keeper-spatial">
       <div className="forward-title"><div><span className="small-heading">SHOT ORIGINS · 2018 + 2022</span><h2>Shot direction & goalkeeper positioning</h2><p>Select a shot to see its origin, outcome and, when available, the goalkeeper and defenders present at that moment.</p></div></div>
       <div className="keeper-metrics"><div><small>Shots with 360 goalkeeper position</small><strong>{observed.length} / {shots.length}</strong></div><div><small>Average lateral offset from goal-centre ray</small><strong>{positioning.length?avg(positioning,'offLine').toFixed(1)+' m':'—'}</strong></div><div><small>Average goalkeeper depth from goal line</small><strong>{positioning.length?avg(positioning,'lineDistance').toFixed(1)+' m':'—'}</strong></div><div><small>Nearest visible defender to shooter</small><strong>{nearestDefender==null?'—':nearestDefender.toFixed(1)+' m'}</strong></div></div>
+    <div className="keeper-zones">{zones.map(zone=>{const items=shots.filter(zone.check);const goals=items.filter(e=>e.outcome==='Goal').length;const xg=items.filter(e=>Number.isFinite(e.xg)).reduce((sum,e)=>sum+e.xg,0);return <div key={zone.name}><span>{zone.name}</span><strong>{items.length} shots · {goals} goals</strong><small>{xg.toFixed(2)} xG · {items.length?Math.round(goals/items.length*100):0}% conversion</small><div className="keeper-meter"><i style={{width:shots.length?Math.round(items.length/shots.length*100)+'%':'0%'}}/></div></div>})}</div>
       <SpatialKeeperMap shots={shots} activeId={selectedShot} onSelect={setSelectedShot}/>
       {!observed.length&&<p className="keeper-empty">No goalkeeper freeze-frame coordinates for these shots. The shot-origin and goalkeeper event maps remain available without StatsBomb 360.</p>}
       <p className="forward-note">Green marker: observed goalkeeper. Blue-grey markers: visible defenders. Dashed line: shot-to-goal-centre reference, not ball trajectory. Spatial offsets describe positioning, not save quality. StatsBomb 360 is only available for some 2022 events in this dataset, and snapshots contain visible players only.</p>
@@ -199,7 +200,7 @@ function KeeperAnalysis({ events, current }) {
       </svg>:<p className="keeper-empty">No 360 goalkeeper position recorded at corner delivery for this selection.</p>}
       <p className="forward-note">Each dot represents the goalkeeper observed at a corner delivery; the shaded area is the six-yard box. This is a starting position, not a measured claim, and missing 360 does not mean a missing goalkeeper.</p>
     </div>
-    <div className="keeper-zones">{zones.map(zone=>{const items=shots.filter(zone.check);const goals=items.filter(e=>e.outcome==='Goal').length;const xg=items.filter(e=>Number.isFinite(e.xg)).reduce((sum,e)=>sum+e.xg,0);return <div key={zone.name}><span>{zone.name}</span><strong>{items.length} shots · {goals} goals</strong><small>{xg.toFixed(2)} xG · {items.length?Math.round(goals/items.length*100):0}% conversion</small><div className="keeper-meter"><i style={{width:shots.length?Math.round(items.length/shots.length*100)+'%':'0%'}}/></div></div>})}</div>
+
     <p className="forward-note">Shot channels are from the attacker's perspective, not the goalkeeper's left/right hand. Open-play shots exclude penalties and free kicks. All shot outcomes are team-level, not necessarily attributable to the selected goalkeeper. Goal rates are descriptive and cannot establish a weak side from a single match.</p>
   </section>
 }
