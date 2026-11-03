@@ -380,7 +380,7 @@ export default function App(){
         <article className="small-card panel"><MiniPitch events={keyPasses} color="#137d52"/><div><span>SHOT LOCATIONS</span><h3>Recorded shots</h3><strong>{number(keyPasses.length)}</strong></div></article>
       </section>
       </>}
-      <footer id="about"><span>Spatial XI · Football spatial analysis</span><span>2018 World Cup events · <a href="https://github.com/statsbomb/open-data" target="_blank" rel="noreferrer">StatsBomb Open Data ↗</a> · <a href="https://github.com/tiffendericbourg/spatial-xi" target="_blank" rel="noreferrer">GitHub ↗</a></span></footer>
+      <footer id="about"><span>Spatial XI · Football spatial analysis</span><span>2018 &amp; 2022 World Cup events · <a href="https://github.com/statsbomb/open-data" target="_blank" rel="noreferrer">StatsBomb Open Data ↗</a> · <a href="https://github.com/tiffendericbourg/spatial-xi" target="_blank" rel="noreferrer">GitHub ↗</a></span></footer>
     </main>
   </div>
 }
