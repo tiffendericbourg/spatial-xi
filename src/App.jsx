@@ -202,7 +202,7 @@ function CornerSequenceAnalysis({ matchId, events, defendingTeam, keeper, period
           })}
         </div>
         <div className="corner-sequence-detail">
-          <svg className="pitch" viewBox="710 125 490 550" role="img" aria-label="Goalkeeper starting position at corner and recorded intervention point">
+          <svg className="pitch" viewBox="640 0 560 800" role="img" aria-label="Goalkeeper starting position at corner and recorded intervention point">
             <rect width="1200" height="800" fill="#e6f3e1"/>{pitchLines}
             <rect x="1135" y="300" width="65" height="200" fill="#13885f" opacity=".16"/>
             {selected && <circle cx="1180" cy={selected.side === 'Left' ? 30 : 770} r="12" fill="#c48a42" stroke="white" strokeWidth="3"/>}
