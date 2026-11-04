@@ -1,4 +1,4 @@
-"""Download available StatsBomb 2018 World Cup matches as compact event JSON.
+"""Prepare StatsBomb 2018 and 2022 World Cup event and corner-sequence JSON.
 
 Run: python scripts/download_data.py
 No third-party Python packages needed.
@@ -104,6 +104,98 @@ def convert_event(event, freeze=None):
     return action
 
 
+
+CORNER_SCHEMA = 1
+CORNER_WINDOW_SECONDS = 18
+
+
+def corner_sequences(events):
+    """Find logged goalkeeper collections/punches in the corner's possession.
+
+    Time is only a safety limit: the event must also share the possession
+    or have a direct related_events link. A keeper action is NOT inferred
+    from proximity alone. No linked action is not evidence of failure.
+    """
+    corners = []
+    restarts = {"Corner", "Free Kick", "Throw-in", "Goal Kick", "Kick Off"}
+    for index, corner in enumerate(events):
+        if (corner.get("type", {}).get("name") != "Pass"
+                or corner.get("pass", {}).get("type", {}).get("name") != "Corner"):
+            continue
+
+        team = corner.get("team", {}).get("name")
+        possession = corner.get("possession")
+        period = corner.get("period")
+        start = corner.get("minute", 0) * 60 + corner.get("second", 0)
+        corner_id = corner.get("id")
+        related = set(corner.get("related_events") or [])
+        interventions = []
+
+        for action in events[index + 1:]:
+            if action.get("period") != period:
+                break
+            elapsed = (action.get("minute", 0) * 60
+                       + action.get("second", 0) - start)
+            if elapsed > CORNER_WINDOW_SECONDS or elapsed < 0:
+                break
+
+            kind = action.get("type", {}).get("name")
+            if kind in {"Half End", "Half Start", "Referee Ball-Drop"}:
+                break
+            if (kind == "Pass"
+                    and action.get("pass", {}).get("type", {}).get("name") in restarts):
+                break
+
+            directly_related = (action.get("id") in related
+                                or corner_id in (action.get("related_events") or []))
+            same_possession = (possession is not None
+                               and action.get("possession") == possession)
+            if not same_possession and not directly_related:
+                # The corner possession ended. Do not attach later keeper actions
+                # merely because they occurred close in time.
+                break
+
+            if kind == "Goal Keeper" and action.get("team", {}).get("name") != team:
+                details = action.get("goalkeeper") or {}
+                action_type = details.get("type", {}).get("name")
+                if action_type in {"Collected", "Punch"}:
+                    point = action.get("location") or []
+                    interventions.append({
+                        "id": action.get("id"),
+                        "type": action_type,
+                        "outcome": details.get("outcome", {}).get("name"),
+                        "player": action.get("player", {}).get("name"),
+                        "team": action.get("team", {}).get("name"),
+                        "x": point[0] if len(point) >= 2 else None,
+                        "y": point[1] if len(point) >= 2 else None,
+                        "elapsed_seconds": elapsed,
+                        "link": "related_event" if directly_related else "same_possession",
+                    })
+
+            if kind == "Shot" and action.get("shot", {}).get("outcome", {}).get("name") == "Goal":
+                break
+
+        corners.append({
+            "id": corner_id,
+            "period": period,
+            "minute": corner.get("minute"),
+            "second": corner.get("second"),
+            "team": team,
+            "side": "Left" if (corner.get("location") or [0, 40])[1] < 40 else "Right",
+            "interventions": interventions,
+        })
+
+    return corners
+
+
+def has_current_corner_schema(path):
+    try:
+        with path.open(encoding="utf-8") as file:
+            return json.load(file).get("schema_version") == CORNER_SCHEMA
+    except (OSError, ValueError):
+        return False
+
+
 def has_current_schema(path):
     try:
         with path.open(encoding="utf-8") as file:
@@ -113,7 +205,7 @@ def has_current_schema(path):
 
 
 def main():
-    # Start with a known, freely available competition: men's 2018 World Cup.
+    # Both available men's World Cup seasons in StatsBomb Open Data.
     selected = []
     for season, year in ((3, 2018), (106, 2022)):
         selected += [(match, year) for match in download_json(f"matches/43/{season}.json")]
@@ -123,26 +215,53 @@ def main():
     for match, year in selected:
         match_id = match["match_id"]
         output = DATA_DIR / f"{match_id}.json"
+        corner_output = DATA_DIR / "corners" / f"{match_id}.json"
         try:
-            # Previously downloaded matches do not need another network request.
-            if not output.exists() or not has_current_schema(output):
+            needs_events = not output.exists() or not has_current_schema(output)
+            needs_corners = (not corner_output.exists()
+                             or not has_current_corner_schema(corner_output))
+            if needs_events or needs_corners:
                 events = download_json(f"events/{match_id}.json")
-                freeze_frames = {}
-                if year == 2022:
-                    try:
-                        frames = download_json(f"three-sixty/{match_id}.json")
-                        freeze_frames = {frame["event_uuid"]: frame.get("freeze_frame", []) for frame in frames}
-                    except (OSError, ValueError):
-                        print(f"No 360 for {match_id}, using estimated efficiency")
-                actions = [item for event in events if (item := convert_event(event, freeze_frames.get(event["id"]))) is not None]
-                if not actions:
-                    raise ValueError("No passes or shots returned")
-                save_json(output, {"schema_version": 7, "match_id": match_id, "events": actions})
-                print(f"Saved match {match_id}: {len(actions)} events")
+
+                if needs_events:
+                    freeze_frames = {}
+                    if year == 2022:
+                        try:
+                            frames = download_json(f"three-sixty/{match_id}.json")
+                            freeze_frames = {
+                                frame["event_uuid"]: frame.get("freeze_frame", [])
+                                for frame in frames
+                            }
+                        except (OSError, ValueError):
+                            print(f"No 360 for {match_id}, using estimated efficiency")
+
+                    actions = [
+                        item for event in events
+                        if (item := convert_event(
+                            event, freeze_frames.get(event["id"])
+                        )) is not None
+                    ]
+                    if not actions:
+                        raise ValueError("No passes or shots returned")
+                    save_json(output, {
+                        "schema_version": 7, "match_id": match_id, "events": actions
+                    })
+                    print(f"Saved match {match_id}: {len(actions)} events")
+
+                if needs_corners:
+                    corners = corner_sequences(events)
+                    save_json(corner_output, {
+                        "schema_version": CORNER_SCHEMA,
+                        "match_id": match_id,
+                        "corners": corners,
+                    })
+                    linked = sum(bool(c["interventions"]) for c in corners)
+                    print(f"Saved corners {match_id}: {len(corners)}, "
+                          f"{linked} with logged keeper actions")
             else:
-                print(f"Using cached match {match_id}")
+                print(f"Using cached match and corners {match_id}")
         except (OSError, ValueError, KeyError) as error:
-            # Keep any existing downloaded match if the remote source fails.
+            # Preserve data already on disk when a remote source is unavailable.
             print(f"Skipped match {match_id}: {error}")
             if not output.exists():
                 continue

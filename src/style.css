@@ -54,3 +54,24 @@ footer{border-top:1px solid #e4eaed;padding:24px 3px 32px;color:#82929d;font-siz
   .keeper-section{padding:15px}
 }
 @media(max-width:420px){.keeper-spatial .keeper-metrics{grid-template-columns:1fr}}
+
+/* Corner sequences — actual logged interventions, not a proximity score. */
+.corner-sequence-grid{display:grid;grid-template-columns:minmax(250px,.95fr) minmax(0,1.05fr);gap:18px;margin-top:14px;align-items:start}
+.corner-sequence-list{max-height:420px;overflow-y:auto;border:1px solid #e5ecea;border-radius:10px;background:#fff}
+.corner-sequence-row{display:grid;grid-template-columns:36px minmax(0,1fr) 55px;gap:10px;align-items:center;text-align:left;width:100%;border:0;border-bottom:1px solid #e8eef0;background:#fff;color:#244554;padding:13px 12px;cursor:pointer}
+.corner-sequence-row:last-child{border-bottom:0}
+.corner-sequence-row:hover,.corner-sequence-row.selected{background:#eef7f1}
+.corner-sequence-row:focus-visible{outline:2px solid #17885c;outline-offset:-2px}
+.corner-sequence-minute{font:700 13px 'Space Grotesk',sans-serif;color:#7d939c}
+.corner-sequence-row strong{display:block;font-size:12px}
+.corner-sequence-row small{display:block;margin-top:5px;color:#80929b;font-size:10px}
+.corner-sequence-status{font-size:10px;color:#92a19c;text-align:right}
+.corner-sequence-status.linked{color:#167955;font-weight:700}
+.corner-sequence-detail{background:#f7faf8;border-radius:10px;padding:12px}
+.corner-sequence-detail .pitch{display:block;max-width:280px;max-height:340px;margin:auto;border-radius:8px}
+.corner-sequence-detail .keeper-map-key{gap:9px 14px}
+.corner-action-detail{display:grid;gap:8px;margin-top:9px}
+.corner-action-detail>div{padding:10px 12px;background:white;border:1px solid #e4ede7;border-radius:8px}
+.corner-action-detail strong,.corner-action-detail span{display:block;font-size:11px;line-height:1.5}
+.corner-action-detail span{color:#718793;margin-top:3px}
+@media(max-width:780px){.corner-sequence-grid{grid-template-columns:1fr}.corner-sequence-list{max-height:250px}.corner-sequence-detail .pitch{max-height:290px}}

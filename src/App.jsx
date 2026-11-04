@@ -135,6 +135,103 @@ function GoalkeeperActionsMap({ actions }) {
   </div>
 }
 
+
+function CornerSequenceAnalysis({ matchId, events, defendingTeam, keeper, period }) {
+  const [data, setData] = useState(null)
+  const [loadState, setLoadState] = useState('loading')
+  const [cornerId, setCornerId] = useState(null)
+
+  useEffect(() => {
+    let live = true
+    setData(null)
+    setLoadState('loading')
+    fetch(dataUrl('corners/' + matchId + '.json'))
+      .then(response => {
+        if (!response.ok) throw Error('Corner data unavailable')
+        return response.json()
+      })
+      .then(result => {
+        if (!result || result.schema_version !== 1 || !Array.isArray(result.corners)) {
+          throw Error('Unsupported corner data')
+        }
+        if (live) { setData(result); setLoadState('ready') }
+      })
+      .catch(() => { if (live) setLoadState('missing') })
+    return () => { live = false }
+  }, [matchId])
+
+  const rows = (data?.corners || []).filter(c =>
+    c.team !== defendingTeam && (period === 'Full match' || String(c.period) === period))
+  const interventions = c => (c.interventions || []).filter(a =>
+    a.team === defendingTeam && (!keeper || a.player === keeper))
+  const linked = rows.filter(c => interventions(c).length)
+  const claims = rows.filter(c => interventions(c).some(a => a.type === 'Collected' && a.outcome === 'Claim')).length
+  const punches = rows.filter(c => interventions(c).some(a => a.type === 'Punch')).length
+  const selected = rows.find(c => c.id === cornerId) || linked[0] || rows[0]
+  const selectedActions = selected ? interventions(selected) : []
+  const originalCorner = events.find(e => e.id === selected?.id)
+  const startXY = originalCorner?.corner_keeper_xy
+  const hasStart = Array.isArray(startXY) && valid(startXY[0], startXY[1])
+
+  return <div className="keeper-spatial corner-sequences">
+    <div className="forward-title"><div>
+      <span className="small-heading">CORNER SEQUENCES · 2018 + 2022</span>
+      <h2>Claims, punches & collections</h2>
+      <p>Recorded keeper interventions linked to the corner possession, not actions matched by time alone.</p>
+    </div></div>
+    {loadState === 'loading' && <p className="keeper-empty">Loading corner sequences…</p>}
+    {loadState === 'missing' && <p className="keeper-empty">Corner sequence data is not available for this match. The event dataset can be refreshed through the data workflow; no result is assumed.</p>}
+    {loadState === 'ready' && <>
+      <div className="keeper-metrics">
+        <div><small>Opposition corners</small><strong>{rows.length}</strong></div>
+        <div><small>Corners with logged claim</small><strong>{claims}</strong></div>
+        <div><small>Corners with linked punch</small><strong>{punches}</strong></div>
+        <div><small>Corners with no linked action</small><strong>{rows.length - linked.length}</strong></div>
+      </div>
+      {rows.length ? <div className="corner-sequence-grid">
+        <div className="corner-sequence-list" aria-label="Corners and associated goalkeeper actions">
+          {rows.map(c => {
+            const actions = interventions(c)
+            return <button type="button" key={c.id}
+              className={'corner-sequence-row' + (c.id === selected?.id ? ' selected' : '')}
+              onClick={() => setCornerId(c.id)}>
+              <span className="corner-sequence-minute">{c.minute}'</span>
+              <span><strong>{c.side} corner</strong><small>{actions.length ? actions.map(a => a.type === 'Collected' ? (a.outcome === 'Claim' ? 'Claim' : 'Collection') : 'Punch').join(' + ') : 'No linked keeper action'}</small></span>
+              <span className={'corner-sequence-status' + (actions.length ? ' linked' : '')}>{actions.length ? 'Logged' : '—'}</span>
+            </button>
+          })}
+        </div>
+        <div className="corner-sequence-detail">
+          <svg className="pitch" viewBox="640 0 560 800" role="img" aria-label="Goalkeeper starting position at corner and recorded intervention point">
+            <rect width="1200" height="800" fill="#e6f3e1"/>{pitchLines}
+            <rect x="1135" y="300" width="65" height="200" fill="#13885f" opacity=".16"/>
+            {selected && <circle cx="1180" cy={selected.side === 'Left' ? 30 : 770} r="12" fill="#c48a42" stroke="white" strokeWidth="3"/>}
+            {hasStart && <circle cx={startXY[0] * 10} cy={startXY[1] * 10} r="12" fill="#2d83ac" stroke="white" strokeWidth="3"/>}
+            {selectedActions.filter(a => valid(a.x, a.y)).map(a =>
+              <g key={a.id}><circle cx={(120 - a.x) * 10} cy={(80 - a.y) * 10} r="13"
+                fill={a.type === 'Collected' ? '#17885c' : '#d26d50'} stroke="white" strokeWidth="3">
+                <title>{a.type} · {a.player} · {a.elapsed_seconds} s after corner</title>
+              </circle></g>)}
+          </svg>
+          <div className="keeper-map-key">
+            <span><i style={{background:'#c48a42'}}/>Corner</span>
+            <span><i style={{background:'#2d83ac'}}/>360 starting position</span>
+            <span><i style={{background:'#17885c'}}/>Collection</span>
+            <span><i style={{background:'#d26d50'}}/>Punch</span>
+          </div>
+          {selectedActions.length ? <div className="corner-action-detail">
+            {selectedActions.map(a => <div key={a.id}>
+              <strong>{a.player || 'Goalkeeper'} · {a.type === 'Collected' ? (a.outcome === 'Claim' ? 'Claim' : 'Collection') : 'Punch'}</strong>
+              <span>{a.outcome || 'Outcome not recorded'} · {a.elapsed_seconds} s after delivery · {a.link === 'related_event' ? 'Direct event link' : 'Same corner possession'}</span>
+            </div>)}
+          </div> : <p className="keeper-empty">No collection or punch linked to this corner. This is not evidence that the keeper stayed on the line or made a mistake.</p>}
+        </div>
+      </div> : <p className="keeper-empty">No opposition corners in this period.</p>}
+    </>}
+    <p className="forward-note">A link requires the same StatsBomb possession or an explicit related-event reference, with an 18-second maximum and no intervening restart. Only a collection explicitly labelled “Claim” is counted as a claim; other collections are not assumed to be aerial. A same-possession link does not prove contact with the corner delivery. Missing links do not measure unsuccessful outings. The 360 starting dot is displayed only when observed.</p>
+  </div>
+}
+
 function KeeperAnalysis({ events, current }) {
   const [keeperTeam,setKeeperTeam]=useState('')
   const [keeperName,setKeeperName]=useState('')
@@ -151,10 +248,6 @@ function KeeperAnalysis({ events, current }) {
   const zones=[{name:'Left flank',check:e=>e.y<80/3},{name:'Centre',check:e=>e.y>=80/3&&e.y<=160/3},{name:'Right flank',check:e=>e.y>160/3}]
   const corners=matchEvents.filter(e=>e.type==='Pass'&&e.team&&e.team!==activeTeam&&e.is_corner)
   const box6=gkEvents.filter(e=>valid(e.x,e.y)&&e.x>=0&&e.x<=6.5&&e.y>=30&&e.y<=50)
-  const cornerResponses=box6.filter(e=>corners.some(c=>{
-    const seconds=(e.minute-c.minute)*60+(e.second||0)-(c.second||0)
-    return c.period===e.period&&seconds>=0&&seconds<=15
-  }))
   const observed=shots.filter(s=>Array.isArray(s.keeper_xy)&&valid(s.keeper_xy[0],s.keeper_xy[1]))
   const positioning=observed.map(s=>{
     const [kx,ky]=s.keeper_xy
@@ -179,7 +272,7 @@ function KeeperAnalysis({ events, current }) {
     <div className="keeper-metrics"><div><small>Open-play shots faced · team</small><strong>{shots.length}</strong></div><div><small>Goals from these shots · team</small><strong>{teamGoals}</strong></div><div><small>Opponent open-play xG</small><strong>{teamXg.toFixed(2)}</strong></div><div><small>Goalkeeper events · player</small><strong>{gkEvents.length}</strong></div></div>
     <div className="keeper-spatial">
       <div className="forward-title"><div><span className="small-heading">POSITIONAL EVENTS · 2018 + 2022</span><h2>Where does the goalkeeper intervene?</h2><p>Recorded goalkeeper actions rotated into the same orientation as the opposition shots.</p></div></div>
-      <div className="keeper-metrics"><div><small>Events inside the six-yard box</small><strong>{box6.length} / {gkEvents.length}</strong></div><div><small>Average event distance from goal line</small><strong>{avgDepth==null?'—':avgDepth.toFixed(1)+' m'}</strong></div><div><small>Events within 15 s after a corner, inside six-yard box</small><strong>{cornerResponses.length}</strong></div></div>
+      <div className="keeper-metrics"><div><small>Events inside the six-yard box</small><strong>{box6.length} / {gkEvents.length}</strong></div><div><small>Average event distance from goal line</small><strong>{avgDepth==null?'—':avgDepth.toFixed(1)+' m'}</strong></div><div><small>Logged aerial responses to corners</small><strong>See corner sequences below</strong></div></div>
       {gkEvents.length?<GoalkeeperActionsMap actions={gkEvents}/>:<p className="keeper-empty">No goalkeeper actions recorded in this period.</p>}
       <p className="forward-note">These are the locations of logged events, not continuous goalkeeper tracking. The green shading shows the six-yard box. Corner proximity is temporal association only, not evidence of a claim.</p>
     </div>
@@ -191,6 +284,7 @@ function KeeperAnalysis({ events, current }) {
       {!observed.length&&<p className="keeper-empty">No goalkeeper freeze-frame coordinates for these shots. The shot-origin and goalkeeper event maps remain available without StatsBomb 360.</p>}
       <p className="forward-note">Green marker: observed goalkeeper. Blue-grey markers: visible defenders. Dashed line: shot-to-goal-centre reference, not ball trajectory. Spatial offsets describe positioning, not save quality. StatsBomb 360 is only available for some 2022 events in this dataset, and snapshots contain visible players only.</p>
     </div>
+    <CornerSequenceAnalysis matchId={current?.id} events={events} defendingTeam={activeTeam} keeper={activeKeeper} period={keeperPeriod}/>
     <div className="keeper-spatial"><div className="forward-title"><div><span className="small-heading">CORNER POSITIONING · 360</span><h2>Goalkeeper starting position</h2><p>Observed placement at the moment a corner is delivered, not proof of a claim or a successful intervention.</p></div></div>
       <div className="keeper-metrics"><div><small>Corners faced</small><strong>{corners.length}</strong></div><div><small>Corners with observed keeper position</small><strong>{observedCorners.length}</strong></div><div><small>Inside six-yard box on delivery</small><strong>{keeperInSix} / {observedCorners.length}</strong></div></div>
       {observedCorners.length?<svg className="pitch" viewBox="650 140 550 520" role="img" aria-label="Goalkeeper locations at opposing corner deliveries">
