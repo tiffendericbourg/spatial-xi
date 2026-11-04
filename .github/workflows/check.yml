@@ -19,5 +19,20 @@ jobs:
         run: npm install
       - name: Test corner sequence extraction
         run: python -m unittest discover -s tests -v
+      - name: Check real StatsBomb corner data
+        run: |
+          python - <<'PY'
+          from scripts.download_data import corner_sequences, download_json
+
+          for match_id in (7525, 3869685):
+              events = download_json(f"events/{match_id}.json")
+              corners = corner_sequences(events)
+              assert corners, f"No corners detected in {match_id}"
+              for corner in corners:
+                  assert all(action["type"] in ("Collected", "Punch")
+                             for action in corner["interventions"])
+              linked = sum(bool(corner["interventions"]) for corner in corners)
+              print(f"Match {match_id}: {len(corners)} corners, {linked} linked to a collection or punch")
+          PY
       - name: Build
         run: npm run build
