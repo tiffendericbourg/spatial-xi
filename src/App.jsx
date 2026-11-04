@@ -165,7 +165,7 @@ function CornerSequenceAnalysis({ matchId, events, defendingTeam, keeper, period
   const interventions = c => (c.interventions || []).filter(a =>
     a.team === defendingTeam && (!keeper || a.player === keeper))
   const linked = rows.filter(c => interventions(c).length)
-  const claims = rows.filter(c => interventions(c).some(a => a.type === 'Collected')).length
+  const claims = rows.filter(c => interventions(c).some(a => a.type === 'Collected' && a.outcome === 'Claim')).length
   const punches = rows.filter(c => interventions(c).some(a => a.type === 'Punch')).length
   const selected = rows.find(c => c.id === cornerId) || linked[0] || rows[0]
   const selectedActions = selected ? interventions(selected) : []
@@ -176,15 +176,15 @@ function CornerSequenceAnalysis({ matchId, events, defendingTeam, keeper, period
   return <div className="keeper-spatial corner-sequences">
     <div className="forward-title"><div>
       <span className="small-heading">CORNER SEQUENCES · 2018 + 2022</span>
-      <h2>Claims & punches after corners</h2>
-      <p>Actual logged goalkeeper actions linked to the corner possession, not actions matched by time alone.</p>
+      <h2>Claims, punches & collections</h2>
+      <p>Recorded keeper interventions linked to the corner possession, not actions matched by time alone.</p>
     </div></div>
     {loadState === 'loading' && <p className="keeper-empty">Loading corner sequences…</p>}
     {loadState === 'missing' && <p className="keeper-empty">Corner sequence data is not available for this match. The event dataset can be refreshed through the data workflow; no result is assumed.</p>}
     {loadState === 'ready' && <>
       <div className="keeper-metrics">
         <div><small>Opposition corners</small><strong>{rows.length}</strong></div>
-        <div><small>Corners with linked collection</small><strong>{claims}</strong></div>
+        <div><small>Corners with logged claim</small><strong>{claims}</strong></div>
         <div><small>Corners with linked punch</small><strong>{punches}</strong></div>
         <div><small>Corners with no linked action</small><strong>{rows.length - linked.length}</strong></div>
       </div>
@@ -196,7 +196,7 @@ function CornerSequenceAnalysis({ matchId, events, defendingTeam, keeper, period
               className={'corner-sequence-row' + (c.id === selected?.id ? ' selected' : '')}
               onClick={() => setCornerId(c.id)}>
               <span className="corner-sequence-minute">{c.minute}'</span>
-              <span><strong>{c.side} corner</strong><small>{actions.length ? actions.map(a => a.type === 'Collected' ? 'Collection' : 'Punch').join(' + ') : 'No linked keeper action'}</small></span>
+              <span><strong>{c.side} corner</strong><small>{actions.length ? actions.map(a => a.type === 'Collected' ? (a.outcome === 'Claim' ? 'Claim' : 'Collection') : 'Punch').join(' + ') : 'No linked keeper action'}</small></span>
               <span className={'corner-sequence-status' + (actions.length ? ' linked' : '')}>{actions.length ? 'Logged' : '—'}</span>
             </button>
           })}
@@ -221,14 +221,14 @@ function CornerSequenceAnalysis({ matchId, events, defendingTeam, keeper, period
           </div>
           {selectedActions.length ? <div className="corner-action-detail">
             {selectedActions.map(a => <div key={a.id}>
-              <strong>{a.player || 'Goalkeeper'} · {a.type === 'Collected' ? 'Collection' : 'Punch'}</strong>
+              <strong>{a.player || 'Goalkeeper'} · {a.type === 'Collected' ? (a.outcome === 'Claim' ? 'Claim' : 'Collection') : 'Punch'}</strong>
               <span>{a.outcome || 'Outcome not recorded'} · {a.elapsed_seconds} s after delivery · {a.link === 'related_event' ? 'Direct event link' : 'Same corner possession'}</span>
             </div>)}
           </div> : <p className="keeper-empty">No collection or punch linked to this corner. This is not evidence that the keeper stayed on the line or made a mistake.</p>}
         </div>
       </div> : <p className="keeper-empty">No opposition corners in this period.</p>}
     </>}
-    <p className="forward-note">A link requires the same StatsBomb possession or an explicit related-event reference, with an 18-second maximum and no intervening restart. The logged action is real, but a same-possession link does not prove direct contact with the corner delivery. Missing links do not measure unsuccessful outings. The 360 starting dot is displayed only when observed.</p>
+    <p className="forward-note">A link requires the same StatsBomb possession or an explicit related-event reference, with an 18-second maximum and no intervening restart. Only a collection explicitly labelled “Claim” is counted as a claim; other collections are not assumed to be aerial. A same-possession link does not prove contact with the corner delivery. Missing links do not measure unsuccessful outings. The 360 starting dot is displayed only when observed.</p>
   </div>
 }
 
