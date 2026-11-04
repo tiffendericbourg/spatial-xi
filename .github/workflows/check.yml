@@ -17,5 +17,7 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         run: npm install
+      - name: Test corner sequence extraction
+        run: python -m unittest discover -s tests -v
       - name: Build
         run: npm run build
